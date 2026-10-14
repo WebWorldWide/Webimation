@@ -1,4 +1,4 @@
-// Plotline stage renderer. Every graphic is a pure function of local time, so it scrubs, loops and
+// Webimation stage renderer. Every graphic is a pure function of local time, so it scrubs, loops and
 // renders frame-exact. Reveal timing comes from the template's cues; the motion comes from a preset.
 import { E, easeFn, exitFn, prog } from './easing';
 import { FX, type FxCtx, type Render } from './effects';
@@ -84,7 +84,7 @@ export interface Stage {
 export function createStage(host: HTMLElement): Stage {
   host.innerHTML = '';
   const inner = document.createElement('div');
-  inner.style.cssText = `position:absolute;left:0;top:0;width:${STAGE_W}px;height:${STAGE_H}px;transform-origin:0 0;overflow:hidden;color:#fff;font-family:Archivo,system-ui,sans-serif`;
+  inner.style.cssText = `position:absolute;left:0;top:0;width:${STAGE_W}px;height:${STAGE_H}px;transform-origin:0 0;overflow:hidden;color:#fff;font-family:'Archivo Variable',Archivo,system-ui,sans-serif`;
   const layer = document.createElement('div'), guides = document.createElement('div');
   guides.style.cssText = 'position:absolute;inset:0;pointer-events:none';
   guides.innerHTML = GUIDES;

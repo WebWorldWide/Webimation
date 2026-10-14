@@ -257,7 +257,7 @@ const T: Template[] = [
 
   // ── preview specimen for the motion library ──────────────────────────────
   {
-    id: 'specimen', name: 'Specimen', dur: 3.4, hidden: true, fields: [['label', 'Label'], ['title', 'Title'], ['tag', 'Tag']], d: { label: 'Plotline · Motion', title: 'Where the hours go', tag: 'Ep. 001' }, accent: 'orange', field: 'blue',
+    id: 'specimen', name: 'Specimen', dur: 3.4, hidden: true, fields: [['label', 'Label'], ['title', 'Title'], ['tag', 'Tag']], d: { label: 'Webimation · Motion', title: 'Where the hours go', tag: 'Ep. 001' }, accent: 'orange', field: 'blue',
     html: (P, a) => `<div style="position:absolute;left:110px;right:110px;top:150px">
       ${R(0, 0.45, esc(P.label), { i: `${CAPS}font-size:24px;color:#fff` })}
       ${R(0.1, 0.75, esc(P.title), { w: 'margin-top:26px;padding-bottom:18px', i: `${SERIF}font-size:150px;line-height:.95;letter-spacing:-.01em;color:#fff` })}

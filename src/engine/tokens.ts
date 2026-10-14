@@ -8,7 +8,7 @@ export const accHex = (a: string) => ACC[a as AccentId] || ACC.orange;
 
 export const STAGE_W = 1280, STAGE_H = 720;
 
-export const SANS = 'font-family:Archivo,system-ui,sans-serif;';
+export const SANS = "font-family:'Archivo Variable',Archivo,system-ui,sans-serif;";
 export const CAPS = SANS + 'font-weight:600;font-stretch:78%;letter-spacing:.16em;text-transform:uppercase;line-height:1.2;';
 export const SERIF = "font-family:'Instrument Serif',serif;font-weight:400;font-synthesis:none;";
 export const NUM = SANS + 'font-weight:900;font-stretch:62%;font-variant-numeric:tabular-nums;';

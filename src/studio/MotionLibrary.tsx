@@ -3,6 +3,7 @@ import {
   allPresets, createStage, customPresets, defaultParams, deleteCustom, describe, EASES, EFFECTS, FX, getPreset, GROUPS, mint,
   ORDER_LABEL, ORDERS, PRESET_GROUPS, sanitize, saveCustom, subscribe, type Clip, type EaseId, type FxRef, type Order, type Preset, type PresetGroup, type Stage
 } from '../engine';
+import { isDesktop, isMac, openText, saveText } from './desktop';
 import { onTick, RM, specimenClip, Thumb } from './Preview';
 
 interface Props {
@@ -16,6 +17,7 @@ interface Props {
 }
 
 const HOLD = 0.7;
+const PRESET_FILES = { name: 'Webimation preset', extensions: ['json'] };
 const randomSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 const fmtT = (t: number) => t.toFixed(2).padStart(5, '0') + ' s';
 
@@ -41,7 +43,7 @@ function LabStage({ clip }: { clip: Clip }) {
   useEffect(() => { t.current = 0; }, [clip.tpl, clip.motion?.id]);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div ref={host} style={{ position: 'relative', aspectRatio: '16/9', overflow: 'hidden', background: '#111113', boxShadow: '0 0 0 1px rgba(240,241,242,.12)' }} />
+      <div ref={host} style={{ position: 'relative', aspectRatio: '16/9', overflow: 'hidden', background: '#111113', boxShadow: '0 0 0 1px var(--stage-ring)' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <button className="play-btn" style={{ width: 38, height: 28 }} aria-label="Play or pause" onClick={() => setPlaying(p => !p)}>
           {playing
@@ -50,7 +52,7 @@ function LabStage({ clip }: { clip: Clip }) {
         </button>
         <input ref={range} className="range" type="range" min={0} step={1 / 60} defaultValue={0} aria-label="Scrub preview"
           onInput={e => { setPlaying(false); t.current = +(e.target as HTMLInputElement).value; }} />
-        <span ref={tcRef} className="mono" style={{ fontSize: 12, color: '#F0F1F2', minWidth: 58, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>00.00 s</span>
+        <span ref={tcRef} className="mono" style={{ fontSize: 12, color: 'var(--fg)', minWidth: 58, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>00.00 s</span>
       </div>
     </div>
   );
@@ -58,7 +60,7 @@ function LabStage({ clip }: { clip: Clip }) {
 
 const Label = ({ children, note }: { children: ReactNode; note?: ReactNode }) => (
   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-    <span className="caps">{children}</span>{note != null && <span className="mono" style={{ fontSize: 11, color: '#8B9198' }}>{note}</span>}
+    <span className="caps">{children}</span>{note != null && <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{note}</span>}
   </div>
 );
 
@@ -91,11 +93,11 @@ function FxEditor({ value, onChange, exitOnly }: { value: FxRef; onChange: (r: F
       </select>
       {def.params.map(q => (
         <div key={q.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={{ fontSize: 11.5, color: '#8B9198' }}>{q.label}</span>
+          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{q.label}</span>
           <Seg value={value.p[q.key] ?? q.options[0]} options={q.options} onChange={v => onChange({ ...value, p: { ...value.p, [q.key]: v } })} />
         </div>
       ))}
-      <span style={{ fontSize: 12, lineHeight: 1.45, color: '#8B9198' }}>{def.blurb}</span>
+      <span style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--muted)' }}>{def.blurb}</span>
     </div>
   );
 }
@@ -107,7 +109,6 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
   const [draft, setDraft] = useState<Preset>(() => ({ ...getPreset(current || 'sig-broadcast') }));
   const [dirty, setDirty] = useState(false);
   const [on, setOn] = useState<'specimen' | 'graphic'>(target ? 'graphic' : 'specimen');
-  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
@@ -139,14 +140,16 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
     onApply(id);
     onLog(`Applied ${getPreset(id).name}`);
   };
-  const exportJson = () => {
-    const blob = new Blob([JSON.stringify(draft, null, 2)], { type: 'application/json' }), a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = `${draft.name.replace(/[^\w-]+/g, '-').toLowerCase()}.plotline.json`; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  };
-  const importJson = async (f: File) => {
+  const exportJson = async () => {
     try {
-      const raw = JSON.parse(await f.text()), items = (Array.isArray(raw) ? raw : [raw]).map(sanitize).filter((p): p is Preset => !!p);
+      if (await saveText(`${draft.name.replace(/[^\w-]+/g, '-').toLowerCase()}.webimation.json`, JSON.stringify(draft, null, 2), PRESET_FILES)) onLog(`Exported ${draft.name}`);
+    } catch (e) { onLog(`Export failed: ${e instanceof Error ? e.message : e}`); }
+  };
+  const importJson = async () => {
+    const f = await openText(PRESET_FILES).catch(() => null);
+    if (!f) return;
+    try {
+      const raw = JSON.parse(f.text), items = (Array.isArray(raw) ? raw : [raw]).map(sanitize).filter((p): p is Preset => !!p);
       items.forEach(p => saveCustom(p));
       if (items[0]) load(getPreset(items[0].id));
       onLog(items.length ? `Imported ${items.length} preset${items.length > 1 ? 's' : ''}` : `No valid presets in ${f.name}`);
@@ -157,34 +160,34 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
   const previewClip: Clip = on === 'graphic' && target ? { ...target, motion: draft } : specimenClip(draft);
 
   return (
-    <div role="dialog" aria-label="Motion library" style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', background: '#0B0B0C' }}>
-      <header style={{ minHeight: 56, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16, padding: '0 20px', background: '#101012', borderBottom: '1px solid rgba(240,241,242,.12)' }}>
+    <div role="dialog" aria-label="Motion library" style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', background: 'var(--app)' }}>
+      <header data-tauri-drag-region className={'titlebar' + (isDesktop && isMac ? ' mac-inset' : '')} style={{ minHeight: 56, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16, padding: '0 20px', background: 'var(--header)', borderBottom: '1px solid var(--line)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ width: 22, height: 22, background: '#FF8A1F', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 1H9V9H1Z" fill="none" stroke="#0B0B0C" strokeWidth="2" /></svg></span>
+          <span style={{ width: 22, height: 22, background: 'var(--hi)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 1H9V9H1Z" fill="none" stroke="#FFFFFF" strokeWidth="2" /></svg></span>
           <span style={{ fontSize: 13, fontWeight: 700, fontStretch: '90%', letterSpacing: '.22em', textTransform: 'uppercase' }}>Motion library</span>
         </div>
-        <span className="mono" style={{ fontSize: 12, color: '#8B9198' }}>{counts.All} presets · {EFFECTS.length} effect families · {custom.length} custom</span>
+        <span className="mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{counts.All} presets · {EFFECTS.length} effect families · {custom.length} custom</span>
         <span style={{ flex: 1 }} />
         <input className="field-input" placeholder="Search presets…" value={query} onChange={e => setQuery(e.target.value)} style={{ width: 260, height: 32 }} aria-label="Search presets" />
         <button className="btn-text" onClick={onClose}>Close · Esc</button>
       </header>
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-        <aside style={{ width: 220, flex: 'none', overflowY: 'auto', background: '#121214', borderRight: '1px solid rgba(240,241,242,.12)', padding: '20px 0' }}>
+        <aside style={{ width: 220, flex: 'none', overflowY: 'auto', background: 'var(--panel)', borderRight: '1px solid var(--line)', padding: '20px 0' }}>
           <div className="caps" style={{ padding: '0 20px 12px' }}>Groups</div>
           {(['All', ...PRESET_GROUPS] as const).map(g => (
             <button key={g} className={'group-btn ease' + (group === g ? ' on' : '')} onClick={() => setGroup(g)}>
-              <span>{g}</span><span className="mono" style={{ fontSize: 11, color: '#8B9198' }}>{counts[g] || 0}</span>
+              <span>{g}</span><span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{counts[g] || 0}</span>
             </button>
           ))}
-          <div style={{ padding: 20, fontSize: 12, lineHeight: 1.5, color: '#8B9198' }}>
+          <div style={{ padding: 20, fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>
             Every preset is time-pure: scrub it, loop it, render it frame-exact. Click to load into the Lab, double-click to apply.
           </div>
         </aside>
 
-        <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: 20, background: '#161618' }}>
+        <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: 20, background: 'var(--canvas)' }}>
           {list.length === 0
-            ? <p style={{ margin: 0, fontSize: 14, color: '#B9BEC4' }}>{group === 'Custom' && !query ? 'No custom presets yet. Tune one in the Lab and save it, or mint a new one.' : 'Nothing matches that search.'}</p>
+            ? <p style={{ margin: 0, fontSize: 14, color: 'var(--fg-3)' }}>{group === 'Custom' && !query ? 'No custom presets yet. Tune one in the Lab and save it, or mint a new one.' : 'Nothing matches that search.'}</p>
             : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 14 }}>
                 {list.map(p => (
@@ -192,10 +195,10 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
                     <Thumb preset={p.id} />
                     <span style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '9px 10px 10px' }}>
                       <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
-                        <span style={{ fontSize: 13.5, color: '#F0F1F2', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                        {p.id === current && <span className="caps" style={{ color: '#FFB36B', flex: 'none' }}>On graphic</span>}
+                        <span style={{ fontSize: 13.5, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                        {p.id === current && <span className="caps" style={{ color: 'var(--hi-text)', flex: 'none' }}>On graphic</span>}
                       </span>
-                      <span className="mono" style={{ fontSize: 10.5, color: '#8B9198', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{FX[p.enter.fx]?.name}{p.exit ? ` → ${FX[p.exit.fx]?.name}` : ''} · {p.ease}</span>
+                      <span className="mono" style={{ fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{FX[p.enter.fx]?.name}{p.exit ? ` → ${FX[p.exit.fx]?.name}` : ''} · {p.ease}</span>
                     </span>
                   </button>
                 ))}
@@ -203,23 +206,23 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
             )}
         </main>
 
-        <aside style={{ width: 380, flex: 'none', overflowY: 'auto', background: '#121214', borderLeft: '1px solid rgba(240,241,242,.12)' }}>
+        <aside style={{ width: 380, flex: 'none', overflowY: 'auto', background: 'var(--panel)', borderLeft: '1px solid var(--line)' }}>
           <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
               <span className="caps">Motion lab</span>
-              <span className="mono" style={{ fontSize: 11.5, color: dirty ? '#FFB36B' : '#8B9198' }}>{dirty ? 'unsaved' : draft.id}</span>
+              <span className="mono" style={{ fontSize: 11.5, color: dirty ? 'var(--hi-text)' : 'var(--muted)' }}>{dirty ? 'unsaved' : draft.id}</span>
             </div>
             <input aria-label="Preset name" value={draft.name} onChange={e => edit({ name: e.target.value })}
-              style={{ background: 'transparent', border: 0, borderBottom: '1px solid rgba(240,241,242,.18)', padding: '0 0 6px', color: '#F0F1F2', fontFamily: "'Instrument Serif',serif", fontSize: 34, lineHeight: 1, outline: 'none' }} />
+              style={{ background: 'transparent', border: 0, borderBottom: '1px solid var(--line-strong)', padding: '0 0 6px', color: 'var(--fg)', fontFamily: "'Instrument Serif',serif", fontSize: 34, lineHeight: 1, outline: 'none' }} />
             <LabStage clip={previewClip} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <Label>Preview on</Label>
               <Seg value={on} options={['specimen', 'graphic'] as const} onChange={v => setOn(v === 'graphic' && !target ? 'specimen' : v)} label={v => (v === 'graphic' ? (target ? 'Selected graphic' : 'No graphic selected') : 'Specimen')} />
             </div>
-            <span className="mono" style={{ fontSize: 11.5, lineHeight: 1.5, color: '#B9BEC4' }}>{describe(draft)}</span>
+            <span className="mono" style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--fg-3)' }}>{describe(draft)}</span>
           </section>
 
-          <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 18, borderTop: '1px solid rgba(240,241,242,.12)' }}>
+          <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 18, borderTop: '1px solid var(--line)' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <Label note={enterDef.group}>Enter</Label>
               <FxEditor value={draft.enter} onChange={r => edit({ enter: r, spread: undefined })} />
@@ -245,7 +248,7 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
             <Slider label="Exit stagger" value={draft.exitGap} min={0} max={0.2} step={0.01} unit="s" onChange={v => edit({ exitGap: v })} />
           </section>
 
-          <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid rgba(240,241,242,.12)' }}>
+          <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--line)' }}>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn-primary" style={{ flex: 1 }} disabled={!onApply} onClick={apply}>Apply to graphic</button>
               <button className="btn-accent" style={{ flex: 1 }} onClick={() => { load(mint(randomSeed())); setDirty(false); }}>Mint new</button>
@@ -253,11 +256,10 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <button className="btn" onClick={() => { const s = persist(); onLog(`Saved preset ${s.name}`); }}>{draft.custom ? 'Save' : 'Save as custom'}</button>
               <button className="btn" onClick={exportJson}>Export</button>
-              <button className="btn" onClick={() => fileRef.current?.click()}>Import</button>
+              <button className="btn" onClick={importJson}>Import</button>
               {draft.custom && <button className="btn-danger" style={{ marginLeft: 'auto' }} onClick={() => { deleteCustom(draft.id); onLog(`Deleted ${draft.name}`); load(getPreset('sig-broadcast')); }}>Delete</button>}
-              <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={e => { const f = e.target.files?.[0]; if (f) importJson(f); e.target.value = ''; }} />
             </div>
-            <span style={{ fontSize: 12, lineHeight: 1.45, color: '#8B9198' }}>Mint new rolls a fresh recipe from the whole effect space: family, parameters, exit, curve, order and pacing. Every seed is a different animation.</span>
+            <span style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--muted)' }}>Mint new rolls a fresh recipe from the whole effect space: family, parameters, exit, curve, order and pacing. Every seed is a different animation.</span>
           </section>
         </aside>
       </div>

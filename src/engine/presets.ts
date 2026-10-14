@@ -108,10 +108,10 @@ const byId = new Map(LIBRARY.map(p => [p.id, p]));
 
 // ── custom presets (Motion Lab) ────────────────────────────────────────────
 
-const KEY = 'plotline.motion.custom.v1';
+const KEY = 'webimation.motion.custom.v1';
 let custom: Preset[] = [];
 const subs = new Set<() => void>();
-try { custom = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { custom = []; }
+try { custom = JSON.parse(localStorage.getItem(KEY) || localStorage.getItem('plotline.motion.custom.v1') || '[]'); } catch { custom = []; }
 const persist = () => {
   try { localStorage.setItem(KEY, JSON.stringify(custom)); } catch { /* storage full or blocked */ }
   subs.forEach(f => f());

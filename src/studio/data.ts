@@ -1,4 +1,4 @@
-// Episode fixtures from the Plotline Studio design.
+// Episode fixtures from the Plotline Studio design (Webimation's source design).
 import type { Clip } from '../engine';
 
 export const TOTAL = 180, FPS = 30;
@@ -36,5 +36,4 @@ export const pad = (n: number) => String(n).padStart(2, '0');
 export const fmt = (t: number) => { const s = Math.floor(t + 1e-6), f = Math.min(FPS - 1, Math.floor((t - s) * FPS + 1e-6)); return `${pad(Math.floor(s / 60))}:${pad(s % 60)}:${pad(f)}`; };
 export const fmtS = (t: number) => `${Math.floor(t / 60)}:${pad(Math.floor(t % 60))}`;
 export const clamp = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x));
-export const rgba = (hex: string, a: number) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
 export const now = () => new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
