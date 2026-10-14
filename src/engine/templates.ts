@@ -46,7 +46,7 @@ function rankUpd(layer: HTMLElement) {
     const m = E.io(p(t, 2.6, 0.7));
     rows.forEach((row, i) => {
       const r = ROWS[i], kin = E.out(p(t, 0.35 + rA[i] * 0.07, 0.8));
-      row.el.style.transform = `translate3d(0,${((rA[i] * (1 - m) + rB[i] * m) * 64).toFixed(2)}px,0)`;
+      row.el.style.transform = m <= 0 && rA[i] === 0 ? 'none' : `translate(0,${((rA[i] * (1 - m) + rB[i] * m) * 64).toFixed(3)}px)`;
       const frac = (r.a / mA) * (1 - m) + (r.b / mB) * m, n = Math.round((frac * kin * (tw + 2)) / 12);
       row.bar.style.width = Math.max(0, n * 12 - 2) + 'px';
       row.val.textContent = String(Math.round(r.a * kin * (1 - m) + r.b * m));

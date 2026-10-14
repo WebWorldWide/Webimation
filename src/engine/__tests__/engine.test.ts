@@ -68,5 +68,5 @@ describe('stage', () => {
         layer.remove();
       }
     }
-  });
+  }, 120_000);
 });

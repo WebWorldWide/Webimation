@@ -65,8 +65,7 @@ export class Studio extends Component<Props, State> {
     this.timer = window.setInterval(() => this.renderTick(), 100);
     if ((this.props.autoplay ?? true) && !this.RM) { this.t = 26.5; this.setState({ playing: true }); }
     requestAnimationFrame(() => this.follow(true));
-    // Webfonts change text metrics; rebuild once they land so tile grids and line splits measure right.
-    document.fonts?.ready.then(() => { if (!this.dead) { this.stage?.destroy(); this.stage = createStage(this.stageRef.current!); this.dirty = true; } });
+    document.fonts?.ready.then(() => { this.dirty = true; });
   }
   componentDidUpdate(_: Props, ps: State) { this.dirty = true; if (ps.zoom !== this.state.zoom) requestAnimationFrame(() => this.follow(true)); }
   componentWillUnmount() { this.dead = true; cancelAnimationFrame(this.raf); clearInterval(this.timer); window.removeEventListener('keydown', this.onKey); this.stage?.destroy(); }

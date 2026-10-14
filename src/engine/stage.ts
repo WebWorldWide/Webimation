@@ -9,23 +9,30 @@ import { TEMPLATES, type Clip } from './templates';
 import { accHex, CAPS, FIELD, onAcc, SANS, STAGE_H, STAGE_W, type FieldId } from './tokens';
 
 export type { Clip };
+const FRAME = 1 / 30;
 const CLIP_GROUPS = new Set(['Wipe', 'Slats', 'Tiles', 'Leader', 'Cut']);
 const DECOR: FxRef = { fx: 'wipe', p: { dir: 'right' } };
 
 /** Wire one revealable element to a preset. Returns its per-frame render. */
 function reveal(wrap: HTMLElement, i: number, n: number, s: number, d: number, decor: boolean, pr: Preset, D: number, seed: number, accent: string) {
-  const inner = wrap.firstElementChild as HTMLElement, tg = makeTarget(wrap, inner, seed, accent);
+  const inner = wrap.firstElementChild as HTMLElement, tg = makeTarget(wrap, inner, seed, accent, decor);
   // Thin decor (rules, accent bars) follows geometric presets but wipes under mask/type presets.
   const clipish = (r?: FxRef) => !!r && CLIP_GROUPS.has(FX[r.fx]?.group);
   const en = decor && !clipish(pr.enter) ? DECOR : pr.enter;
   const ex = pr.exit && FX[pr.exit.fx]?.exit && (!decor || clipish(pr.exit)) ? pr.exit : undefined;
-  const s2 = s * pr.gap, d2 = d * pr.pace, xs = D - pr.exitDur - (n - 1 - i) * pr.exitGap;
+  // Exits finish on the clip's last displayed frame (D − 1 frame), never after it, so nothing pops off.
+  const s2 = s * pr.gap, d2 = d * pr.pace, xs = D - FRAME - pr.exitDur - (n - 1 - i) * pr.exitGap;
   const def = FX[en.fx] || FX.wipe;
   const cx: FxCtx = { ein: easeFn(pr.ease), eout: exitFn(pr.ease), order: pr.order, spread: pr.spread ?? def.spread ?? 0.5, seed, dur: d2, xdur: pr.exitDur };
   const enter: Render = def.make(tg, en.p, cx);
   const exit: Render | null = ex ? FX[ex.fx].make(tg, ex.p, { ...cx, spread: FX[ex.fx].spread ?? 0.5 }) : null;
+  // Hard guarantee, independent of the effect: nothing shows before its cue or once its exit is done.
+  // (Binary opacity, not a fade: descendants can't override it the way they can visibility.)
+  let off: boolean | null = null;
   return (t: number) => {
-    const k = prog(t, s2, d2), x = prog(t, xs, pr.exitDur);
+    const k = prog(t, s2, d2), x = prog(t, xs, pr.exitDur), o = k <= 0 || x >= 1 - 1e-6;
+    if (o !== off) { off = o; wrap.style.opacity = o ? '0' : ''; }
+    if (o) return;
     if (!exit) enter(k, x);
     else if (x > 0) { enter(1, 0); exit(1, x); }
     else { exit(1, 0); enter(k, 0); }
@@ -67,7 +74,7 @@ export function build(layer: HTMLElement, clip: Clip | null): ((t: number) => vo
     }
     for (const m of mv) {
       const [x0, y0, x1, y1, s, d] = m.v, k = E.io(prog(t, s, d)), sc = m.press && t >= m.press[0] && t < m.press[1] ? 0.86 : 1;
-      m.el.style.transform = `translate3d(${(x0 + (x1 - x0) * k).toFixed(1)}px,${(y0 + (y1 - y0) * k).toFixed(1)}px,0) scale(${sc})`;
+      m.el.style.transform = `translate(${(x0 + (x1 - x0) * k).toFixed(2)}px,${(y0 + (y1 - y0) * k).toFixed(2)}px) scale(${sc})`;
       m.el.style.visibility = t >= s - 0.25 && t < D - 0.3 ? 'visible' : 'hidden';
     }
     if (custom) custom(t);
@@ -84,7 +91,8 @@ export interface Stage {
 export function createStage(host: HTMLElement): Stage {
   host.innerHTML = '';
   const inner = document.createElement('div');
-  inner.style.cssText = `position:absolute;left:0;top:0;width:${STAGE_W}px;height:${STAGE_H}px;transform-origin:0 0;overflow:hidden;color:#fff;font-family:'Archivo Variable',Archivo,system-ui,sans-serif`;
+  inner.dataset.stageRoot = '';
+  inner.style.cssText = `position:absolute;left:0;top:0;width:${STAGE_W}px;height:${STAGE_H}px;transform-origin:0 0;overflow:hidden;color:#fff;font-family:'Archivo Variable',Archivo,system-ui,sans-serif;font-variant-ligatures:none;font-kerning:normal;text-rendering:geometricPrecision;-webkit-font-smoothing:antialiased`;
   const layer = document.createElement('div'), guides = document.createElement('div');
   guides.style.cssText = 'position:absolute;inset:0;pointer-events:none';
   guides.innerHTML = GUIDES;
@@ -95,6 +103,9 @@ export function createStage(host: HTMLElement): Stage {
   ro.observe(host);
   fit();
   let key: string | null = null, upd: ((t: number) => void) | null = null;
+  // Text is measured at build time (kerning, splits, tile grids), so rebuild whenever a webfont lands.
+  const refont = () => { key = null; };
+  document.fonts?.addEventListener('loadingdone', refont);
   return {
     show(clip, lt, o = {}) {
       const k = clip ? clip.id + '|' + clip.tpl + '|' + clip.dur + '|' + clip.start + '|' + JSON.stringify(clip.props) + (clip.motion ? JSON.stringify(clip.motion) : '') : '-';
@@ -102,6 +113,6 @@ export function createStage(host: HTMLElement): Stage {
       guides.style.display = o.guides ? '' : 'none';
       if (upd) upd(lt);
     },
-    destroy() { ro.disconnect(); host.innerHTML = ''; }
+    destroy() { ro.disconnect(); document.fonts?.removeEventListener('loadingdone', refont); host.innerHTML = ''; }
   };
 }

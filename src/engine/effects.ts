@@ -6,9 +6,9 @@
 // inside masks, cut on frames, or fill in whole tiles. The resting frame (k = 1, x = 0) is always
 // the untouched layout.
 import { cl, type Ease } from './easing';
-import { band, cells, EMPTY, FULL, isH, morton, points, poly, slats, within, type Dir, type Rect } from './geom';
+import { band, cells, EMPTY, FULL, isH, morton, poly, slats, within, type Dir, type Rect } from './geom';
 import { hash, ranks, rng, shuffle, type Order } from './rand';
-import type { Target, Unit } from './target';
+import { scaleOf, type Target, type Unit } from './target';
 import { INK } from './tokens';
 
 export type Params = Record<string, string | number>;
@@ -138,17 +138,29 @@ const tiles = (
         }
       } else vis.push(within(r, band(opt.dir || 'right', cx.ein(u), cx.eout(v))));
     }
-    set(poly(vis));
-    flash?.(poly(hot));
+    set(tg.poly(vis));
+    flash?.(tg.poly(hot));
   };
 };
 
 const translate = (el: HTMLElement) => writer(el, 'transform');
 const OFF: Record<string, [number, number]> = { up: [0, 1], down: [0, -1], left: [1, 0], right: [-1, 0] };
-/** Offset (in %) for content entering from `dir` with enter amount a and exit amount b. */
-const slide = (dir: string, a: number, b: number, mag = 104) => {
+const axisOf = (dir: string) => (dir === 'left' || dir === 'right' ? 'x' : 'y');
+/** Inner box offset for content entering from `dir`: travels `dist` px so its ink fully clears the clip. */
+const slidePx = (dir: string, a: number, b: number, dist: number) => {
   const [ox, oy] = OFF[dir] || OFF.up, m = (1 - a) - b;
-  return `translate3d(${(ox * m * mag).toFixed(2)}%,${(oy * m * mag).toFixed(2)}%,0)`;
+  return `translate(${(ox * m * dist).toFixed(3)}px,${(oy * m * dist).toFixed(3)}px)`;
+};
+/** Partial offset in percent of the box (for push, where content trails the wipe). */
+const slidePct = (dir: string, a: number, b: number, pct: number) => {
+  const [ox, oy] = OFF[dir] || OFF.up, m = (1 - a) - b;
+  return `translate(${(ox * m * pct).toFixed(3)}%,${(oy * m * pct).toFixed(3)}%)`;
+};
+/** Unit offset: its own size plus the mask's bleed (.3em vertical, .14em horizontal) on both sides. */
+const slideUnit = (dir: string, a: number, b: number) => {
+  const [ox, oy] = OFF[dir] || OFF.up, m = (1 - a) - b;
+  const c = (o: number, pad: number) => (o ? `calc(${(o * m * 100).toFixed(3)}% + ${(o * m * pad).toFixed(4)}em)` : '0px');
+  return `translate(${c(ox, 0.3)},${c(oy, 0.62)})`;
 };
 
 // ── text plumbing ──────────────────────────────────────────────────────────
@@ -173,7 +185,7 @@ const textBase = (tg: Target, kind: 'char' | 'word' | 'line', cx: FxCtx): TextBa
     units, r,
     frame(k, x) {
       const a = cx.ein(cl(k / 0.4)), b = cx.eout(cl((x - 0.55) / 0.45));
-      set(a >= 1 && b <= 0 ? FULL : poly([band('right', a, b)]));
+      set(a >= 1 && b <= 0 ? FULL : tg.poly([band('right', a, b)]));
       return [cl((k - 0.22) / 0.78), cl(x / 0.6)];
     }
   };
@@ -192,9 +204,18 @@ const perUnit = (
   };
 };
 /** Fix each unit's width to its final glyph so swapping glyphs never reflows the line. */
-const pin = (units: Unit[]) => {
-  const ws = units.map(u => u.mask.offsetWidth);
-  units.forEach((u, i) => { if (ws[i]) { u.mask.style.width = ws[i] + 'px'; u.mask.style.textAlign = 'center'; } });
+/** Hold each unit at its final glyph's exact width while other glyphs flick through it; once the
+ *  final glyph is back the width is released, so the rest frame is the untouched layout. */
+const pinned = (units: Unit[]) => {
+  const ws = units.map(u => (u.el.getBoundingClientRect().width / (scaleOf(u.el) || 1)).toFixed(4) + 'px');
+  const last = units.map(u => u.text);
+  return (i: number, c: string) => {
+    if (last[i] === c) return;
+    last[i] = c;
+    const u = units[i];
+    u.el.textContent = c;
+    u.el.style.width = c === u.text ? '' : ws[i];
+  };
 };
 const GLYPHS: Record<string, string> = {
   glyph: '!<>-_\\/[]{}=+*^?#%&$',
@@ -215,7 +236,7 @@ const defs: EffectDef[] = [
     variant: p => ARROW[p.dir],
     make(tg, p, cx) {
       const set = clipper(tg.wrap), d = p.dir as Dir;
-      return (k, x) => set(done(k, x) ? FULL : poly([band(d, cx.ein(k), cx.eout(x))]));
+      return (k, x) => set(done(k, x) ? FULL : tg.poly([band(d, cx.ein(k), cx.eout(x))]));
     }
   },
   {
@@ -228,7 +249,7 @@ const defs: EffectDef[] = [
       return (k, x) => {
         if (done(k, x)) return set(FULL);
         const a = cx.ein(k), g = 50 * cx.eout(x), lo = 50 - 50 * a, hi = 50 + 50 * a;
-        set(poly(h ? [[lo, 0, 50 - g, 100], [50 + g, 0, hi, 100]] : [[0, lo, 100, 50 - g], [0, 50 + g, 100, hi]]));
+        set(tg.poly(h ? [[lo, 0, 50 - g, 100], [50 + g, 0, hi, 100]] : [[0, lo, 100, 50 - g], [0, 50 + g, 100, hi]]));
       };
     }
   },
@@ -242,7 +263,7 @@ const defs: EffectDef[] = [
       return (k, x) => {
         if (done(k, x)) return set(FULL);
         const a = 50 * cx.ein(k), b = 50 * cx.eout(x);
-        set(poly(h ? [[b, 0, a, 100], [100 - a, 0, 100 - b, 100]] : [[0, b, 100, a], [0, 100 - a, 100, 100 - b]]));
+        set(tg.poly(h ? [[b, 0, a, 100], [100 - a, 0, 100 - b, 100]] : [[0, b, 100, a], [0, 100 - a, 100, 100 - b]]));
       };
     }
   },
@@ -260,7 +281,7 @@ const defs: EffectDef[] = [
         const x0 = o[1] === 'l' ? 0 : 100 - ex, y0 = o[0] === 't' ? 0 : 100 - ey;
         return [x0, y0, x0 + ex, y0 + ey];
       };
-      return (k, x) => set(done(k, x) ? FULL : x > 0 ? poly(minus(sq(cx.eout(x)))) : poly([sq(cx.ein(k))]));
+      return (k, x) => set(done(k, x) ? FULL : x > 0 ? tg.poly(minus(sq(cx.eout(x)))) : tg.poly([sq(cx.ein(k))]));
     }
   },
   {
@@ -273,7 +294,7 @@ const defs: EffectDef[] = [
         const { w, h } = tg.size(), R = a * (w / 2 + h / 2), rx = (R / w) * 100, ry = (R / h) * 100;
         return [[50, 50 - ry], [50 + rx, 50], [50, 50 + ry], [50 - rx, 50]];
       };
-      return (k, x) => set(done(k, x) ? FULL : x > 0 ? holed(ring(cx.eout(x))) : points(ring(cx.ein(k))));
+      return (k, x) => set(done(k, x) ? FULL : x > 0 ? holed(ring(cx.eout(x))) : tg.points(ring(cx.ein(k))));
     }
   },
   {
@@ -288,8 +309,8 @@ const defs: EffectDef[] = [
       };
       return (k, x) => {
         if (done(k, x)) return set(FULL);
-        if (x > 0) return set(poly(at(1 - cx.eout(cl((x - 0.45) / 0.55)), 1 - cx.eout(cl(x / 0.7)))));
-        set(poly(at(cx.ein(cl(k / 0.55)), cx.ein(cl((k - 0.3) / 0.7)))));
+        if (x > 0) return set(tg.poly(at(1 - cx.eout(cl((x - 0.45) / 0.55)), 1 - cx.eout(cl(x / 0.7)))));
+        set(tg.poly(at(cx.ein(cl(k / 0.55)), cx.ein(cl((k - 0.3) / 0.7)))));
       };
     }
   },
@@ -306,7 +327,7 @@ const defs: EffectDef[] = [
         const vs = box.map(([a, b]) => nx * a + ny * b), lo = Math.min(...vs), hi = Math.max(...vs);
         let pts = halfPlane(box, nx, ny, lo + cx.ein(k) * (hi - lo), true);
         if (x > 0) pts = halfPlane(pts, nx, ny, lo + cx.eout(x) * (hi - lo), false);
-        set(points(pts.map(([a, b]) => [(a / w) * 100, (b / h) * 100] as [number, number])));
+        set(tg.points(pts.map(([a, b]) => [(a / w) * 100, (b / h) * 100] as [number, number])));
       };
     }
   },
@@ -323,7 +344,7 @@ const defs: EffectDef[] = [
           const th = t0 + sg * (a0 + ((a1 - a0) * i) / n) * Math.PI * 2;
           pts.push([50 + ((Math.cos(th) * R) / w) * 100, 50 + ((Math.sin(th) * R) / h) * 100]);
         }
-        return points(pts);
+        return tg.points(pts);
       };
       return (k, x) => set(done(k, x) ? FULL : x > 0 ? sector(cx.eout(x), 1) : k <= 0 ? EMPTY : sector(0, cx.ein(k)));
     }
@@ -337,7 +358,7 @@ const defs: EffectDef[] = [
     variant: p => `${p.axis === 'h' ? '≡' : '⦀'} ${p.n}`,
     make(tg, p, cx) {
       const set = clipper(tg.wrap), sl = slats(+p.n, p.axis as 'h' | 'v'), d: Dir = p.axis === 'h' ? 'down' : 'right', r = ranks(sl.length, cx.order, cx.seed);
-      return (k, x) => set(done(k, x) ? FULL : poly(sl.map((c, i) => within(c, band(d, cx.ein(sub(k, r[i], cx.spread)), cx.eout(sub(x, r[i], cx.spread)))))));
+      return (k, x) => set(done(k, x) ? FULL : tg.poly(sl.map((c, i) => within(c, band(d, cx.ein(sub(k, r[i], cx.spread)), cx.eout(sub(x, r[i], cx.spread)))))));
     }
   },
   {
@@ -355,7 +376,7 @@ const defs: EffectDef[] = [
           const pair: Rect[] = h ? [[0, 50 - a, 100, 50 - b], [0, 50 + b, 100, 50 + a]] : [[50 - a, 0, 50 - b, 100], [50 + b, 0, 50 + a, 100]];
           for (const q of pair) out.push(within(c, q));
         });
-        set(poly(out));
+        set(tg.poly(out));
       };
     }
   },
@@ -366,7 +387,7 @@ const defs: EffectDef[] = [
     variant: p => `${p.axis === 'h' ? '⇄' : '⇅'} ${p.n}`,
     make(tg, p, cx) {
       const set = clipper(tg.wrap), h = p.axis === 'h', sl = slats(+p.n, h ? 'h' : 'v'), r = ranks(sl.length, cx.order, cx.seed);
-      return (k, x) => set(done(k, x) ? FULL : poly(sl.map((c, i) => {
+      return (k, x) => set(done(k, x) ? FULL : tg.poly(sl.map((c, i) => {
         const d: Dir = h ? (i % 2 ? 'left' : 'right') : i % 2 ? 'up' : 'down';
         return within(c, band(d, cx.ein(sub(k, r[i], cx.spread)), cx.eout(sub(x, r[i], cx.spread))));
       })));
@@ -379,7 +400,7 @@ const defs: EffectDef[] = [
     variant: p => `${ARROW[p.dir]} ${p.n}`,
     make(tg, p, cx) {
       const set = clipper(tg.wrap), d = p.dir as Dir, sl = slats(+p.n, isH(d) ? 'h' : 'v'), r = ranks(sl.length, cx.order, cx.seed);
-      return (k, x) => set(done(k, x) ? FULL : poly(sl.map((c, i) => within(c, band(d, cx.ein(sub(k, r[i], cx.spread)), cx.eout(sub(x, r[i], cx.spread)))))));
+      return (k, x) => set(done(k, x) ? FULL : tg.poly(sl.map((c, i) => within(c, band(d, cx.ein(sub(k, r[i], cx.spread)), cx.eout(sub(x, r[i], cx.spread)))))));
     }
   },
   {
@@ -396,7 +417,7 @@ const defs: EffectDef[] = [
       return (k, x) => {
         if (done(k, x)) return set(FULL);
         const ek = cx.ein(k), ex = cx.eout(x);
-        set(poly(bars.filter((_, i) => sub(ek, r[i], cx.spread) > 0 && sub(ex, r[i], cx.spread) <= 0)));
+        set(tg.poly(bars.filter((_, i) => sub(ek, r[i], cx.spread) > 0 && sub(ex, r[i], cx.spread) <= 0)));
       };
     }
   },
@@ -490,10 +511,10 @@ const defs: EffectDef[] = [
         if (done(k, x)) { setW(FULL); setO(EMPTY); return; }
         if (x > 0) {
           const l = cx.eout(cl(x / 0.6)), t = cx.eout(cl((x - 0.4) / 0.6));
-          setW(poly([band(d, 1, t)])); setO(poly([band(d, l, t)]));
+          setW(tg.poly([band(d, 1, t)])); setO(tg.poly([band(d, l, t)]));
         } else {
           const l = cx.ein(cl(k / 0.62)), t = cx.ein(cl((k - 0.38) / 0.62));
-          setW(poly([band(d, l, 0)])); setO(poly([band(d, l, t)]));
+          setW(tg.poly([band(d, l, 0)])); setO(tg.poly([band(d, l, t)]));
         }
       };
     }
@@ -510,8 +531,8 @@ const defs: EffectDef[] = [
         if (done(k, x)) { setW(FULL); setA(EMPTY); setB(EMPTY); return; }
         const e = x > 0 ? cx.eout : cx.ein, u = x > 0 ? x : k;
         const lA = e(cl(u / 0.5)), lB = e(cl((u - 0.18) / 0.5)), t = e(cl((u - 0.42) / 0.58));
-        if (x > 0) { setW(poly([band(d, 1, t)])); setA(poly([band(d, lA, t)])); setB(poly([band(d, lB, t)])); }
-        else { setW(poly([band(d, lA, 0)])); setA(poly([band(d, lA, t)])); setB(poly([band(d, lB, t)])); }
+        if (x > 0) { setW(tg.poly([band(d, 1, t)])); setA(tg.poly([band(d, lA, t)])); setB(tg.poly([band(d, lB, t)])); }
+        else { setW(tg.poly([band(d, lA, 0)])); setA(tg.poly([band(d, lA, t)])); setB(tg.poly([band(d, lB, t)])); }
       };
     }
   },
@@ -529,10 +550,10 @@ const defs: EffectDef[] = [
         if (x > 0) {
           if (x >= 1) { setW(EMPTY); setO(EMPTY); return; }
           const b = cx.eout(x);
-          setW(poly([band(d, 1, Math.max(0, b - th))])); setO(poly([band(d, b, Math.max(0, b - th))]));
+          setW(tg.poly([band(d, 1, Math.max(0, b - th))])); setO(tg.poly([band(d, b, Math.max(0, b - th))]));
         } else {
           const a = cx.ein(k);
-          setW(k <= 0 ? EMPTY : poly([band(d, Math.min(1, a + th), 0)])); setO(poly([band(d, Math.min(1, a + th), a)]));
+          setW(k <= 0 ? EMPTY : tg.poly([band(d, Math.min(1, a + th), 0)])); setO(tg.poly([band(d, Math.min(1, a + th), a)]));
         }
       };
     }
@@ -564,7 +585,7 @@ const defs: EffectDef[] = [
     variant: p => ARROW[p.dir],
     make(tg, p, cx) {
       const set = translate(tg.inner), d = String(p.dir);
-      return (k, x) => set(done(k, x) ? 'none' : slide(d, cx.ein(k), cx.eout(x), 102));
+      return (k, x) => set(done(k, x) ? 'none' : slidePx(d, cx.ein(k), cx.eout(x), tg.reach(axisOf(d))));
     }
   },
   {
@@ -577,8 +598,8 @@ const defs: EffectDef[] = [
       return (k, x) => {
         if (done(k, x)) { setW(FULL); setT('none'); return; }
         const a = cx.ein(k), b = cx.eout(x);
-        setW(poly([band(d, a, b)]));
-        setT(slide(d, a, b, 28));
+        setW(tg.poly([band(d, a, b)]));
+        setT(slidePct(d, a, b, 28));
       };
     }
   },
@@ -589,7 +610,7 @@ const defs: EffectDef[] = [
     variant: p => (p.axis === 'h' ? '↔' : '↕'),
     make(tg, p) {
       const setW = clipper(tg.wrap), setT = translate(tg.inner), h = p.axis === 'h', IN = [28, -14, 6, 0], OUT = [0, 6, -14, 28];
-      const at = (v: number) => (h ? `translate3d(${v}px,0,0)` : `translate3d(0,${v}px,0)`);
+      const at = (v: number) => (h ? `translate(${v}px,0` : `translate(0,${v}px`);
       return (k, x) => {
         if (done(k, x)) { setW(FULL); setT('none'); return; }
         if (x > 0) { setW(x < 0.8 ? FULL : EMPTY); setT(at(OUT[Math.min(3, Math.floor(x * 4))])); return; }
@@ -621,7 +642,7 @@ const defs: EffectDef[] = [
     variant: p => ARROW[p.dir],
     make(tg, p, cx) {
       const d = String(p.dir);
-      return perUnit(tg, 'char', cx, u => { const set = translate(u.el); return (a, b) => set(a >= 1 && b <= 0 ? 'none' : slide(d, cx.ein(a), cx.eout(b))); });
+      return perUnit(tg, 'char', cx, u => { const set = translate(u.el); return (a, b) => set(a >= 1 && b <= 0 ? 'none' : slideUnit(d, cx.ein(a), cx.eout(b))); });
     }
   },
   {
@@ -631,7 +652,7 @@ const defs: EffectDef[] = [
     variant: p => ARROW[p.dir],
     make(tg, p, cx) {
       const d = String(p.dir);
-      return perUnit(tg, 'word', cx, u => { const set = translate(u.el); return (a, b) => set(a >= 1 && b <= 0 ? 'none' : slide(d, cx.ein(a), cx.eout(b))); });
+      return perUnit(tg, 'word', cx, u => { const set = translate(u.el); return (a, b) => set(a >= 1 && b <= 0 ? 'none' : slideUnit(d, cx.ein(a), cx.eout(b))); });
     }
   },
   {
@@ -641,7 +662,7 @@ const defs: EffectDef[] = [
     variant: p => ARROW[p.dir],
     make(tg, p, cx) {
       const d = String(p.dir);
-      return perUnit(tg, 'line', cx, u => { const set = translate(u.el); return (a, b) => set(a >= 1 && b <= 0 ? 'none' : slide(d, cx.ein(a), cx.eout(b))); });
+      return perUnit(tg, 'line', cx, u => { const set = translate(u.el); return (a, b) => set(a >= 1 && b <= 0 ? 'none' : slideUnit(d, cx.ein(a), cx.eout(b))); });
     }
   },
   {
@@ -652,7 +673,7 @@ const defs: EffectDef[] = [
     make(tg, p, cx) {
       return perUnit(tg, p.unit === 'word' ? 'word' : 'char', cx, (u, i) => {
         const set = translate(u.el), d = i % 2 ? 'down' : 'up';
-        return (a, b) => set(a >= 1 && b <= 0 ? 'none' : slide(d, cx.ein(a), cx.eout(b)));
+        return (a, b) => set(a >= 1 && b <= 0 ? 'none' : slideUnit(d, cx.ein(a), cx.eout(b)));
       });
     }
   },
@@ -722,9 +743,15 @@ const defs: EffectDef[] = [
       const us = tb.units, vis = us.map(u => writer(u.el, 'visibility'));
       let caret: HTMLElement | null = null, at = -2;
       if (p.caret !== 'none') {
+        // Absolutely positioned so it can never push a word onto the next line mid-type.
         caret = document.createElement('span');
-        caret.style.cssText = `display:inline-block;width:.42em;height:.82em;margin-left:.04em;vertical-align:-.04em;background:${colorOf(tg, p.caret)}`;
+        caret.style.cssText = `position:absolute;left:0;top:0;width:.42em;height:.82em;pointer-events:none;background:${colorOf(tg, p.caret)}`;
+        if (getComputedStyle(tg.inner).position === 'static') tg.inner.style.position = 'relative';
       }
+      const place = (u: Unit) => {
+        const ir = tg.inner.getBoundingClientRect(), er = u.el.getBoundingClientRect(), k = scaleOf(tg.inner) || 1;
+        caret!.style.transform = `translate(${((er.right - ir.left) / k).toFixed(3)}px,${((er.top - ir.top) / k).toFixed(3)}px) translate(.06em,.09em)`;
+      };
       return (k, x) => {
         const [ku, xu] = tb.frame(k, x), n = x > 0 ? Math.ceil((1 - xu) * us.length) : Math.ceil(ku * us.length);
         for (let i = 0; i < us.length; i++) vis[i](i < n ? 'visible' : 'hidden');
@@ -733,7 +760,7 @@ const defs: EffectDef[] = [
         if (pos !== at) {
           at = pos;
           if (pos < 0) caret.remove();
-          else us[pos].mask.after(caret);
+          else { if (!caret.isConnected) tg.inner.append(caret); place(us[pos]); }
         }
       };
     }
@@ -746,9 +773,8 @@ const defs: EffectDef[] = [
     make(tg, p, cx) {
       const tb = textBase(tg, 'char', cx);
       if (!tb) return FX.wipe.make(tg, { dir: 'right' }, cx);
-      const us = tb.units, G = GLYPHS[String(p.set)] || GLYPHS.glyph, txt = us.map(u => writer(u.el, 'visibility')), last: string[] = us.map(u => u.text);
-      pin(us);
-      const put = (i: number, c: string) => { if (last[i] !== c) { last[i] = c; us[i].el.textContent = c; } };
+      const us = tb.units, G = GLYPHS[String(p.set)] || GLYPHS.glyph, txt = us.map(u => writer(u.el, 'visibility'));
+      const put = pinned(us);
       const glyph = (i: number, step: number) => G[hash(`${cx.seed}:${i}:${step}`) % G.length];
       return (k, x) => {
         const [ku, xu] = tb.frame(k, x);
@@ -775,9 +801,8 @@ const defs: EffectDef[] = [
     make(tg, p, cx) {
       const tb = textBase(tg, 'char', cx);
       if (!tb) return FX.wipe.make(tg, { dir: 'right' }, cx);
-      const us = tb.units, rate = +p.rate, vis = us.map(u => writer(u.el, 'visibility')), last = us.map(u => u.text), L = FLAP.length;
-      pin(us);
-      const put = (i: number, c: string) => { if (last[i] !== c) { last[i] = c; us[i].el.textContent = c; } };
+      const us = tb.units, rate = +p.rate, vis = us.map(u => writer(u.el, 'visibility')), L = FLAP.length;
+      const put = pinned(us);
       const flips = us.map((_, i) => 4 + ((i * 7 + cx.seed) % 6));
       const target = us.map(u => FLAP.indexOf(u.text.toUpperCase()));
       const face = (i: number, st: number) => {
