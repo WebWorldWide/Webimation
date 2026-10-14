@@ -24,22 +24,41 @@ export const specimenClip = (preset: Preset | string, accent = 'orange', field =
     : { id: 'spec', tpl: 'specimen', start: 0, dur: T.dur, props: { ...T.d, accent, field, reveal: preset.id }, motion: preset };
 };
 const HOLD = 0.7;
+/** Still frame shown when a card isn't playing: every element has landed, nothing has started leaving. */
+export const POSTER_T = 2.6;
 
-/** Library thumbnail: builds its stage the first time it scrolls into view, animates only while visible. */
-export function Thumb({ preset }: { preset: string }) {
-  const ref = useRef<HTMLDivElement>(null);
+/**
+ * Library thumbnail. Builds its stage the first time it scrolls into view. Shows the poster frame
+ * until `playing` (hover, or "animate all"), then plays from the first frame and loops.
+ */
+export function Thumb({ preset, playing }: { preset: string; playing: boolean }) {
+  const ref = useRef<HTMLDivElement>(null), stage = useRef<Stage | null>(null), seen = useRef(false);
+  const clip = useRef(specimenClip(preset));
+  clip.current = specimenClip(preset);
   useEffect(() => {
-    const host = ref.current!, clip = specimenClip(preset), L = clip.dur + HOLD;
-    let stage: Stage | null = null, off: (() => void) | null = null;
+    const host = ref.current!;
     const io = new IntersectionObserver(([e]) => {
-      if (e.isIntersecting) {
-        stage ??= createStage(host);
-        if (RM) stage.show(clip, 1.8);
-        else if (!off) off = onTick(now => stage!.show(clip, (now / 1000) % L));
-      } else { off?.(); off = null; }
+      seen.current = e.isIntersecting;
+      if (e.isIntersecting && !stage.current) { stage.current = createStage(host); stage.current.show(clip.current, POSTER_T); }
+      host.dispatchEvent(new Event('thumbvis'));
     }, { rootMargin: '120px' });
     io.observe(host);
-    return () => { io.disconnect(); off?.(); stage?.destroy(); };
-  }, [preset]);
+    return () => { io.disconnect(); stage.current?.destroy(); stage.current = null; };
+  }, []);
+  useEffect(() => {
+    const host = ref.current!;
+    let off: (() => void) | null = null;
+    const sync = () => {
+      off?.(); off = null;
+      const st = stage.current;
+      if (!st) return;
+      if (!playing || RM || !seen.current) { st.show(clip.current, POSTER_T); return; }
+      const t0 = performance.now(), L = clip.current.dur + HOLD;
+      off = onTick(now => st.show(clip.current, ((now - t0) / 1000) % L));
+    };
+    sync();
+    host.addEventListener('thumbvis', sync);
+    return () => { host.removeEventListener('thumbvis', sync); off?.(); };
+  }, [playing, preset]);
   return <div ref={ref} className="thumb" />;
 }

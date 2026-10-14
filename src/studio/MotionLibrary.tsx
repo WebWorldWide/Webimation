@@ -109,6 +109,9 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
   const [draft, setDraft] = useState<Preset>(() => ({ ...getPreset(current || 'sig-broadcast') }));
   const [dirty, setDirty] = useState(false);
   const [on, setOn] = useState<'specimen' | 'graphic'>(target ? 'graphic' : 'specimen');
+  const [hover, setHover] = useState<string | null>(null);
+  const [animateAll, setAnimateAll] = useState(() => { try { return localStorage.getItem('webimation.library.animateAll') === '1'; } catch { return false; } });
+  const toggleAll = (v: boolean) => { setAnimateAll(v); try { localStorage.setItem('webimation.library.animateAll', v ? '1' : '0'); } catch { /* storage blocked */ } };
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
@@ -168,6 +171,10 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
         </div>
         <span className="mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{counts.All} presets · {EFFECTS.length} effect families · {custom.length} custom</span>
         <span style={{ flex: 1 }} />
+        <div className="seg tight" role="group" aria-label="Card previews" title="Cards play on hover; Animate all plays every card">
+          <button className={'ease' + (!animateAll ? ' on' : '')} aria-pressed={!animateAll} onClick={() => toggleAll(false)}>Play on hover</button>
+          <button className={'ease' + (animateAll ? ' on' : '')} aria-pressed={animateAll} onClick={() => toggleAll(true)}>Animate all</button>
+        </div>
         <input className="field-input" placeholder="Search presets…" value={query} onChange={e => setQuery(e.target.value)} style={{ width: 260, height: 32 }} aria-label="Search presets" />
         <button className="btn-text" onClick={onClose}>Close · Esc</button>
       </header>
@@ -181,7 +188,7 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
             </button>
           ))}
           <div style={{ padding: 20, fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>
-            Every preset is time-pure: scrub it, loop it, render it frame-exact. Click to load into the Lab, double-click to apply.
+            Hover a card to see the animation from its first frame. Click to load it into the Lab, double-click to apply it.
           </div>
         </aside>
 
@@ -191,8 +198,9 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
             : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 14 }}>
                 {list.map(p => (
-                  <button key={p.id} className={'tile ease' + (p.id === draft.id ? ' on' : '')} onClick={() => load(p)} onDoubleClick={() => { load(p); if (onApply) { onApply(p.id); onLog(`Applied ${p.name}`); } }}>
-                    <Thumb preset={p.id} />
+                  <button key={p.id} className={'tile ease' + (p.id === draft.id ? ' on' : '')} onClick={() => load(p)}
+                    onMouseEnter={() => setHover(p.id)} onMouseLeave={() => setHover(h => (h === p.id ? null : h))} onFocus={() => setHover(p.id)} onBlur={() => setHover(h => (h === p.id ? null : h))} onDoubleClick={() => { load(p); if (onApply) { onApply(p.id); onLog(`Applied ${p.name}`); } }}>
+                    <Thumb preset={p.id} playing={animateAll || hover === p.id} />
                     <span style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '9px 10px 10px' }}>
                       <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
                         <span style={{ fontSize: 13.5, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
