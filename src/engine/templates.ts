@@ -7,7 +7,11 @@
 import { E, prog as p } from './easing';
 import { CAPS, esc, INK, MONO, NUM, SANS, SERIF, type AccentId, type FieldId } from './tokens';
 
-export interface Clip { id: string; tpl: string; start: number; dur: number; props: Record<string, string> }
+export interface Clip {
+  id: string; tpl: string; start: number; dur: number; props: Record<string, string>;
+  /** Unsaved preset to preview (Motion Lab); wins over props.reveal. */
+  motion?: import('./presets').Preset;
+}
 type Html = (P: Record<string, string>, a: string, clip: Clip, ai: string) => string;
 export interface Template {
   id: string;

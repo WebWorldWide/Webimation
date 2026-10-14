@@ -40,7 +40,7 @@ export function build(layer: HTMLElement, clip: Clip | null): ((t: number) => vo
     layer.innerHTML = `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px"><span style="${CAPS}font-size:18px;color:#8B9198">A-roll · Camera 1</span><span style="${SANS}font-size:22px;color:#8B9198">No graphic at this frame</span></div>`;
     return null;
   }
-  const P = { ...T.d, ...clip.props }, a = accHex(P.accent), ai = onAcc(P.accent), D = clip.dur, pr = getPreset(P.reveal);
+  const P = { ...T.d, ...clip.props }, a = accHex(P.accent), ai = onAcc(P.accent), D = clip.dur, pr = clip.motion ?? getPreset(P.reveal);
   layer.style.cssText = base + (FIELD[P.field as FieldId] || FIELD.blue);
   layer.innerHTML = T.html(P, a, clip, ai);
   const q = <E extends Element = HTMLElement>(s: string) => [...layer.querySelectorAll<E>(s)];
@@ -97,7 +97,7 @@ export function createStage(host: HTMLElement): Stage {
   let key: string | null = null, upd: ((t: number) => void) | null = null;
   return {
     show(clip, lt, o = {}) {
-      const k = clip ? clip.id + '|' + clip.tpl + '|' + clip.dur + '|' + clip.start + '|' + JSON.stringify(clip.props) : '-';
+      const k = clip ? clip.id + '|' + clip.tpl + '|' + clip.dur + '|' + clip.start + '|' + JSON.stringify(clip.props) + (clip.motion ? JSON.stringify(clip.motion) : '') : '-';
       if (k !== key) { key = k; upd = build(layer, clip); }
       guides.style.display = o.guides ? '' : 'none';
       if (upd) upd(lt);
