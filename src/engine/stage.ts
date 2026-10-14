@@ -6,7 +6,9 @@ import { getPreset, type FxRef, type Preset } from './presets';
 import { hash } from './rand';
 import { makeTarget } from './target';
 import { TEMPLATES, type Clip } from './templates';
-import { accHex, CAPS, FIELD, onAcc, SANS, STAGE_H, STAGE_W, type FieldId } from './tokens';
+import { roleMetrics, typeVars } from './fonts';
+import { accentHex, colorVars, fieldCss, onAccent, placement } from './look';
+import { CAPS, SANS, STAGE_H, STAGE_W } from './tokens';
 
 export type { Clip };
 const FRAME = 1 / 30;
@@ -39,6 +41,27 @@ function reveal(wrap: HTMLElement, i: number, n: number, s: number, d: number, d
   };
 }
 
+/** Move/scale the template's content per the clip's placement props (before any target is measured). */
+function place(layer: HTMLElement, content: HTMLElement, P: Record<string, string>) {
+  if (!P.place && !P.size && !P.nx && !P.ny) return;
+  const els = [...content.querySelectorAll<HTMLElement>('[data-r],[data-move]')];
+  if (!els.length) return;
+  const lr = layer.getBoundingClientRect(), k = lr.width / STAGE_W || 1;
+  const box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+  for (const el of els) {
+    if (el.dataset.move) continue;
+    const r = el.getBoundingClientRect();
+    box.x0 = Math.min(box.x0, (r.left - lr.left) / k); box.y0 = Math.min(box.y0, (r.top - lr.top) / k);
+    box.x1 = Math.max(box.x1, (r.right - lr.left) / k); box.y1 = Math.max(box.y1, (r.bottom - lr.top) / k);
+  }
+  if (!isFinite(box.x0)) return;
+  const pl = placement(P, box);
+  if (pl.identity) return;
+  content.style.transformOrigin = pl.origin;
+  content.style.transform = pl.transform;
+  content.dataset.k = String(pl.size);
+}
+
 export function build(layer: HTMLElement, clip: Clip | null): ((t: number) => void) | null {
   const base = 'position:absolute;inset:0;overflow:hidden;';
   const T = clip && TEMPLATES[clip.tpl];
@@ -47,9 +70,15 @@ export function build(layer: HTMLElement, clip: Clip | null): ((t: number) => vo
     layer.innerHTML = `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px"><span style="${CAPS}font-size:18px;color:#8B9198">A-roll · Camera 1</span><span style="${SANS}font-size:22px;color:#8B9198">No graphic at this frame</span></div>`;
     return null;
   }
-  const P = { ...T.d, ...clip.props }, a = accHex(P.accent), ai = onAcc(P.accent), D = clip.dur, pr = clip.motion ?? getPreset(P.reveal);
-  layer.style.cssText = base + (FIELD[P.field as FieldId] || FIELD.blue);
-  layer.innerHTML = T.html(P, a, clip, ai);
+  const P: Record<string, string> = { accent: T.accent, field: T.field, ...T.d, ...clip.props };
+  const a = accentHex(P.accent), ai = onAccent(P.accent), D = clip.dur, pr = clip.motion ?? getPreset(P.reveal);
+  layer.style.cssText = base + fieldCss(P).css;
+  for (const [k, v] of Object.entries({ ...typeVars(P), ...colorVars(P) })) layer.style.setProperty(k, v);
+  const content = document.createElement('div');
+  content.style.cssText = 'position:absolute;inset:0';
+  content.innerHTML = roleMetrics(T.html(P, a, clip, ai));
+  layer.replaceChildren(content);
+  place(layer, content, P);
   const q = <E extends Element = HTMLElement>(s: string) => [...layer.querySelectorAll<E>(s)];
   const nums = (s: string) => s.split(',').map(Number);
   const rEls = q('[data-r]');
@@ -60,7 +89,7 @@ export function build(layer: HTMLElement, clip: Clip | null): ((t: number) => vo
   const untils = q<HTMLElement | SVGElement>('[data-until]').map(el => ({ el, s: +el.dataset.until!, o: el.style.display }));
   const segs = q('[data-seg]').map(el => { const [f, s, d] = el.dataset.seg!.split('|').map(Number); return { el, f, s, d, w: 0 }; });
   const mv = q<SVGElement>('[data-move]').map(el => ({ el, v: nums(el.dataset.move!), press: el.dataset.press ? nums(el.dataset.press) : null }));
-  const custom = T.update ? T.update(layer) : null;
+  const custom = T.update ? T.update(layer, clip) : null;
   return t => {
     for (const r of rs) r(t);
     for (const c of cs) c.el.textContent = (c.v * E.out(prog(t, c.s, c.d))).toFixed(c.dec) + c.suf;

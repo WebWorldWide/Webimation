@@ -15,7 +15,7 @@
         "title": "Webimation",
         "width": 1440,
         "height": 900,
-        "minWidth": 1024,
+        "minWidth": 1180,
         "minHeight": 680,
         "center": true,
         "resizable": true,

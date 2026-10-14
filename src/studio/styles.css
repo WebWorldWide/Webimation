@@ -109,3 +109,13 @@ select.field-input { appearance: none; background-image: linear-gradient(45deg, 
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); }
 ::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
+
+/* Inspector style sections */
+.style-sec { border-top: 1px solid var(--line); padding: 12px 0 4px; }
+.style-sec > summary { list-style: none; display: flex; justify-content: space-between; align-items: baseline; cursor: pointer; }
+.style-sec > summary::-webkit-details-marker { display: none; }
+.style-sec > summary .caps::before { content: '+'; display: inline-block; width: 14px; color: var(--muted); }
+.style-sec[open] > summary .caps::before { content: '−'; }
+
+/* Scrolling columns: children keep their natural height (the stage is aspect-ratio sized). */
+.col > * { flex-shrink: 0; }

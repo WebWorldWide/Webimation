@@ -1,0 +1,21 @@
+// Every font a graphic can use ships with the app (graphics must render identically offline).
+import '@fontsource-variable/archivo/wdth.css';
+import '@fontsource/instrument-serif/400.css';
+import '@fontsource/instrument-serif/400-italic.css';
+import '@fontsource-variable/inter';
+import '@fontsource-variable/space-grotesk';
+import '@fontsource-variable/bricolage-grotesque/wdth.css';
+import '@fontsource-variable/syne';
+import '@fontsource-variable/fraunces';
+import '@fontsource-variable/fraunces/wght-italic.css';
+import '@fontsource-variable/playfair-display';
+import '@fontsource-variable/playfair-display/wght-italic.css';
+import '@fontsource-variable/jetbrains-mono';
+import '@fontsource-variable/caveat';
+import '@fontsource/bebas-neue';
+import '@fontsource/anton';
+import '@fontsource/dm-serif-display';
+import '@fontsource/dm-serif-display/400-italic.css';
+import '@fontsource/permanent-marker';
+import '@fontsource/press-start-2p';
+import '@fontsource/vt323';

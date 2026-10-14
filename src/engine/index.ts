@@ -5,3 +5,5 @@ export * from './presets';
 export { createStage, build, type Stage } from './stage';
 export { TEMPLATES, LIBRARY_TEMPLATES, R, type Clip, type Template } from './templates';
 export { ORDERS, ORDER_LABEL, type Order } from './rand';
+export * from './fonts';
+export * from './look';

@@ -3,6 +3,7 @@ import { ACC, BASE_REVEALS, createStage, getPreset, LIBRARY, LIBRARY_TEMPLATES, 
 import { clamp, FMT, fmt, fmtS, FPS, INIT, LINES, now, pad, REVEAL_NOTE, TOTAL, WORDS, type FmtId } from './data';
 import { isDesktop, isMac } from './desktop';
 import { MotionLibrary } from './MotionLibrary';
+import { StylePanel } from './StylePanel';
 import { ThemeSwitch } from './ThemeSwitch';
 
 interface Props { autoplay?: boolean; defaultReveal?: string; startZoom?: 1 | 2 | 4 }
@@ -101,6 +102,14 @@ export class Studio extends Component<Props, State> {
   }
   patch(fn: (c: Clip) => Clip) { const id = this.state.selId; this.setState(s => ({ clips: s.clips.map(c => (c.id === id ? fn(c) : c)) })); }
   setProp(k: string, v: string) { this.patch(c => ({ ...c, props: { ...c.props, [k]: v } })); }
+  /** Set several props at once; `undefined` removes a prop (back to the template/pairing default). */
+  setProps(patch: Record<string, string | undefined>) {
+    this.patch(c => {
+      const props = { ...c.props };
+      for (const [k, v] of Object.entries(patch)) { if (v === undefined) delete props[k]; else props[k] = v; }
+      return { ...c, props };
+    });
+  }
   replay() { const c = this.sel(); if (!c) return; this.seek(c.start); this.setState({ playing: true }); }
   remove() { const c = this.sel(); if (!c) return; this.setState(s => ({ clips: s.clips.filter(x => x.id !== c.id), selId: null })); this.log(`Removed ${tplName(c)}`); }
   duplicate() {
@@ -188,7 +197,7 @@ export class Studio extends Component<Props, State> {
     const motionNote = sel ? (isBase(reveal) ? REVEAL_NOTE[reveal] : getPreset(reveal).blurb || '') : '';
 
     return (
-      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--app)', overflow: 'auto' }}>
+      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--app)', overflow: 'hidden' }}>
         <header data-tauri-drag-region className={'titlebar' + (isDesktop && isMac ? ' mac-inset' : '')} style={{ minHeight: 56, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16, padding: '0 20px', background: 'var(--header)', borderBottom: HAIR }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ width: 22, height: 22, background: 'var(--hi)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 1L9 5L2 9Z" fill="#FFFFFF" /></svg></span>
@@ -204,8 +213,8 @@ export class Studio extends Component<Props, State> {
           <ThemeSwitch />
         </header>
 
-        <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap' }}>
-          <aside style={{ flex: '1 1 260px', minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--panel)', borderRight: HAIR }}>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+          <aside style={{ flex: '0 0 260px', minWidth: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: 'var(--panel)', borderRight: HAIR }}>
             <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14, borderBottom: HAIR }}>
               <span style={capsLabel}>Source</span>
               <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
@@ -239,7 +248,7 @@ export class Studio extends Component<Props, State> {
             </section>
           </aside>
 
-          <main style={{ flex: '999 1 560px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14, padding: 20, background: 'var(--canvas)' }}>
+          <main className="col" style={{ flex: 1, minWidth: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14, padding: 20, background: 'var(--canvas)' }}>
             {s.banner && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 14px', background: 'var(--ok-wash)', border: '1px solid var(--ok-line)', boxShadow: 'inset 3px 0 0 var(--ok)' }}>
                 <span style={{ width: 20, height: 20, flex: 'none', background: 'var(--ok)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6.5L5 9.5L10.5 3" fill="none" stroke="#FFFFFF" strokeWidth="2" /></svg></span>
@@ -331,7 +340,7 @@ export class Studio extends Component<Props, State> {
             </section>
           </main>
 
-          <aside style={{ flex: '1 1 300px', minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--panel)', borderLeft: HAIR }}>
+          <aside style={{ flex: '0 0 320px', minWidth: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: 'var(--panel)', borderLeft: HAIR }}>
             <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 18, borderBottom: HAIR }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span style={capsLabel}>Inspector</span><span style={mono(11.5)}>{sel ? `${pad(idx + 1)} / ${pad(cs.length)}` : `— / ${pad(cs.length)}`}</span></div>
               {sel ? (
@@ -340,14 +349,6 @@ export class Studio extends Component<Props, State> {
                   {TEMPLATES[sel.tpl].fields.map(([k, label]) => (
                     <label key={sel.id + k} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}><span style={capsLabel}>{label}</span><input className="field-input ease" value={sel.props[k] ?? ''} onChange={e => this.setProp(k, e.target.value)} /></label>
                   ))}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}><span style={capsLabel}>Accent</span>
-                    <div style={{ display: 'flex', gap: 10, paddingLeft: 2 }}>
-                      {Object.entries(ACC).map(([id, hex]) => <button key={id} className="ease" aria-label={id} onClick={() => this.setProp('accent', id)} style={{ width: 28, height: 28, background: hex, border: 0, cursor: 'pointer', boxShadow: sel.props.accent === id ? '0 0 0 2px #121214, 0 0 0 3px #F0F1F2' : 'inset 0 0 0 1px var(--line-strong)' }} />)}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}><span style={capsLabel}>Field</span>
-                    <div className="seg">{([['blue', 'Blue'], ['ink', 'Ink'], ['clear', 'Clear']] as const).map(([id, label]) => <button key={id} className={'ease' + (sel.props.field === id ? ' on' : '')} onClick={() => this.setProp('field', id)}>{label}</button>)}</div>
-                  </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}><span style={capsLabel}>Reveal</span>
                     <div className="seg">{BASE_REVEALS.map(([id, label]) => <button key={id} className={'ease' + (reveal === id ? ' on' : '')} onClick={() => { this.setProp('reveal', id); this.replay(); }}>{label}</button>)}</div>
                     <div style={{ display: 'flex', alignItems: 'stretch', border: `1px solid ${isBase(reveal) ? 'var(--line-strong)' : 'var(--hi-line)'}` }}>
@@ -359,6 +360,7 @@ export class Studio extends Component<Props, State> {
                     </div>
                     <span style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--muted)' }}>{motionNote}</span>
                   </div>
+                  <StylePanel props={{ ...TEMPLATES[sel.tpl].d, accent: TEMPLATES[sel.tpl].accent, field: TEMPLATES[sel.tpl].field, ...sel.props }} set={(k, v) => this.setProp(k, v)} setMany={p => this.setProps(p)} />
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 0', borderTop: HAIR, borderBottom: HAIR }}>
                     <span style={{ fontSize: 13, color: 'var(--label)' }}>Duration</span>
                     <div style={{ display: 'flex', border: '1px solid var(--line-strong)' }}>
