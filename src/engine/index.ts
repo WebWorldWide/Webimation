@@ -10,3 +10,5 @@ export * from './look';
 export * from './shapes';
 export { shapeOf, shapeParams } from './shapeRender';
 export { rasterize, pngBytes, type RasterOpts } from './raster';
+export * from './stick';
+export { stickLength } from './stickRender';

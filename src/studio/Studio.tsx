@@ -1,8 +1,9 @@
 import { Component, createRef, type CSSProperties } from 'react';
-import { ACC, BASE_REVEALS, createStage, getPreset, LIBRARY, LIBRARY_TEMPLATES, presetName, SHAPE, SHAPE_GROUPS, SHAPES, TEMPLATES, type Clip, type Stage } from '../engine';
+import { ACC, BASE_REVEALS, createStage, getPreset, LIBRARY, LIBRARY_TEMPLATES, castLength, presetName, SCENES, SHAPE, SHAPE_GROUPS, SHAPES, TEMPLATES, type Clip, type Stage } from '../engine';
 import { clamp, fmt, fmtS, FPS, INIT, LINES, now, pad, REVEAL_NOTE, TOTAL, WORDS } from './data';
 import { isDesktop, isMac } from './desktop';
 import { MotionLibrary } from './MotionLibrary';
+import { CastPanel } from './CastPanel';
 import { ExportPanel } from './ExportPanel';
 import { ShapePanel } from './ShapePanel';
 import { StylePanel } from './StylePanel';
@@ -21,7 +22,7 @@ interface State {
 const HAIR = '1px solid var(--line)';
 const capsLabel: CSSProperties = { fontSize: 10.5, fontWeight: 600, fontStretch: '78%', letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--label)' };
 const mono = (size: number, color = 'var(--muted)'): CSSProperties => ({ fontFamily: 'ui-monospace,Menlo,monospace', fontSize: size, color });
-const tplName = (c: Clip) => (c.tpl === 'shape' ? SHAPE[c.props.shape]?.name ?? 'Shape' : TEMPLATES[c.tpl]?.name ?? c.tpl);
+const tplName = (c: Clip) => (c.tpl === 'shape' ? SHAPE[c.props.shape]?.name ?? 'Shape' : c.tpl === 'stick' ? c.props.scene || 'Stick figures' : TEMPLATES[c.tpl]?.name ?? c.tpl);
 /** Starter labels for shapes that carry text. */
 const SHAPE_LABEL: Record<string, string> = { double: '2.4×', leaderline: 'Look here', bubble: 'This is the trick', pin: 'Reykjavík', number: '1', bracket: 'First 48 h', tag: 'New', progress: 'Rendering · 72%' };
 const isBase = (r: string | undefined) => BASE_REVEALS.some(b => b[0] === r);
@@ -128,9 +129,9 @@ export class Studio extends Component<Props, State> {
   log(msg: string) { this.setState(s => ({ log: [{ time: now(), msg }, ...s.log].slice(0, 7) })); }
   select(id: string) { const c = this.state.clips.find(x => x.id === id); this.setState({ selId: id, anchor: null }); if (c) this.seek(this.poster(c)); }
 
-  pin(tpl: string, at: number, extra: Record<string, string> = {}) {
-    const T = TEMPLATES[tpl], start = +clamp(at, 0, TOTAL - T.dur).toFixed(2), id = 'c' + Date.now().toString(36);
-    const clip: Clip = { id, tpl, start, dur: T.dur, props: { ...T.d, accent: T.accent, field: T.field, reveal: this.props.defaultReveal ?? 'wipe', ...extra } };
+  pin(tpl: string, at: number, extra: Record<string, string> = {}, dur?: number) {
+    const T = TEMPLATES[tpl], d = dur ?? T.dur, start = +clamp(at, 0, TOTAL - d).toFixed(2), id = 'c' + Date.now().toString(36);
+    const clip: Clip = { id, tpl, start, dur: d, props: { ...T.d, accent: T.accent, field: T.field, reveal: this.props.defaultReveal ?? 'wipe', ...extra } };
     this.setState(s => ({ clips: [...s.clips, clip], selId: id, anchor: null }));
     this.seek(start);
     if (!this.state.playing) this.setState({ playing: !this.RM });
@@ -214,7 +215,7 @@ export class Studio extends Component<Props, State> {
         if (!moved && Math.abs(ev.clientX - x0) < 3) return;
         moved = true;
         const dx = ((ev.clientX - x0) / r.width) * TOTAL;
-        if (mode === 'trim') { const dur = Math.round(clamp(c.dur + dx, 2, Math.min(15, TOTAL - c.start)) * 10) / 10; this.patch(k => ({ ...k, dur })); }
+        if (mode === 'trim') { const dur = Math.round(clamp(c.dur + dx, 1, Math.min(30, TOTAL - c.start)) * 10) / 10; this.patch(k => ({ ...k, dur })); }
         else { const start = Math.round(clamp(c.start + dx, 0, TOTAL - c.dur) * 10) / 10; this.patch(k => ({ ...k, start })); this.seek(start + Math.min(2.4, c.dur * 0.45)); }
       };
       const up = () => {
@@ -303,6 +304,15 @@ export class Studio extends Component<Props, State> {
                     {SHAPES.filter(x => x.group === g).map(x => <button key={x.id} className="btn btn-sm ease" title={x.blurb} onClick={() => this.pin('shape', this.t, { shape: x.id, label: SHAPE_LABEL[x.id] ?? '' })}>{x.name}</button>)}
                   </div>
                 </div>
+              ))}
+            </section>
+            <section style={{ padding: '20px 0 12px', borderBottom: HAIR }}>
+              <div style={{ padding: '0 20px 12px', display: 'flex', justifyContent: 'space-between', gap: 8 }}><span style={capsLabel}>Stick figures</span><span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{SCENES.length} scenes</span></div>
+              {SCENES.map(sc => (
+                <button key={sc.id} className="lib-row ease" title={sc.blurb} style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}
+                  onClick={() => { const cast = sc.cast(); this.pin('stick', this.t, { cast: JSON.stringify(cast), scene: sc.name }, +(castLength(cast) + 0.3).toFixed(1)); }}>
+                  <span style={{ fontSize: 14 }}>{sc.name}</span><span style={{ ...mono(11), textAlign: 'right' }}>{castLength(sc.cast()).toFixed(1)} s</span>
+                </button>
               ))}
             </section>
             <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -435,6 +445,7 @@ export class Studio extends Component<Props, State> {
               {sel ? (
                 <>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}><span style={{ fontFamily: "'Instrument Serif',serif", fontSize: 38, lineHeight: 1, color: 'var(--fg)' }}>{tplName(sel)}</span><span style={mono(11.5)}>IN {fmt(sel.start)} · OUT {fmt(sel.start + sel.dur)}</span></div>
+                  {sel.tpl === 'stick' && <CastPanel props={sel.props} set={(k, v) => this.setProp(k, v)} time={this.state.mode === 'single' ? this.lt : this.t - sel.start} fit={d => this.patch(c => ({ ...c, dur: Math.min(30, d) }))} />}
                   {sel.tpl === 'shape' && <ShapePanel props={sel.props} set={(k, v) => this.setProp(k, v)} setMany={p => this.setProps(p)} />}
                   {TEMPLATES[sel.tpl].fields.filter(([k]) => sel.tpl !== 'shape' || (k === 'label' && SHAPE[sel.props.shape]?.label)).map(([k, label]) => (
                     <label key={sel.id + k} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}><span style={capsLabel}>{label}</span><input className="field-input ease" value={sel.props[k] ?? ''} onChange={e => this.setProp(k, e.target.value)} /></label>
@@ -456,7 +467,7 @@ export class Studio extends Component<Props, State> {
                     <div style={{ display: 'flex', border: '1px solid var(--line-strong)' }}>
                       <button className="btn-text" aria-label="Shorter" style={{ width: 30, padding: 0, fontSize: 15, color: 'var(--fg-2)' }} onClick={() => this.patch(c => ({ ...c, dur: Math.max(2, +(c.dur - 0.5).toFixed(1)) }))}>−</button>
                       <span style={{ minWidth: 62, display: 'flex', alignItems: 'center', justifyContent: 'center', ...mono(12.5, 'var(--fg)'), borderLeft: '1px solid var(--line-strong)', borderRight: '1px solid var(--line-strong)' }}>{sel.dur.toFixed(1)} s</span>
-                      <button className="btn-text" aria-label="Longer" style={{ width: 30, padding: 0, fontSize: 15, color: 'var(--fg-2)' }} onClick={() => this.patch(c => ({ ...c, dur: Math.min(15, TOTAL - c.start, +(c.dur + 0.5).toFixed(1)) }))}>+</button>
+                      <button className="btn-text" aria-label="Longer" style={{ width: 30, padding: 0, fontSize: 15, color: 'var(--fg-2)' }} onClick={() => this.patch(c => ({ ...c, dur: Math.min(30, TOTAL - c.start, +(c.dur + 0.5).toFixed(1)) }))}>+</button>
                     </div>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>

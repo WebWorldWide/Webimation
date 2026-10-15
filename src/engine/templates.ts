@@ -6,6 +6,7 @@
 //   data-seg="frac|s|d"  bar fills in whole 12 px segments     data-press="t0,t1" press scale
 import { E, prog as p } from './easing';
 import { shapeHtml, shapeUpdate } from './shapeRender';
+import { stickHtml, stickUpdate } from './stickRender';
 import { CAPS, esc, INK, MONO, NUM, SANS, SERIF, type AccentId } from './tokens';
 
 export interface Clip {
@@ -261,6 +262,13 @@ const T: Template[] = [
     id: 'shape', name: 'Shape', dur: 4, hidden: true, fields: [['label', 'Label']], d: { shape: 'arrow', label: '' }, accent: 'orange', field: 'clear',
     html: (P, a, _c, ai) => shapeHtml(P, a, ai),
     update: (layer, clip) => shapeUpdate(layer, clip)
+  },
+
+  // ── stick figures: scripted characters (see stick.ts) ─────────────────────
+  {
+    id: 'stick', name: 'Stick figures', dur: 6.3, hidden: true, fields: [], d: {}, accent: 'orange', field: 'paper',
+    html: (P, a) => stickHtml(P, a),
+    update: (layer, clip) => stickUpdate(layer, clip)
   },
 
   // ── preview specimen for the motion library ──────────────────────────────
