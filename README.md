@@ -4,6 +4,8 @@ Motion graphics for YouTube. Pin graphics to a transcript, pick how they move fr
 
 Webimation is a desktop app for **macOS, Windows and Linux**, built with [Tauri](https://tauri.app). The UI is the web code in `src/`; `src-tauri/` is the native shell.
 
+**New to Webimation? Start with the [user guide](docs/USER_GUIDE.md).** It walks through everything from installing to dropping your export into a video editor.
+
 ## Run it
 
 You need Node 20.19+ and Rust (stable). Linux also needs the WebKitGTK dev packages; see the [Tauri prerequisites](https://tauri.app/start/prerequisites/). Video export uses **ffmpeg** if it's installed (`brew install ffmpeg` · `winget install ffmpeg` · `sudo apt install ffmpeg`); PNG sequences work without it.
@@ -25,14 +27,11 @@ The builds aren't code-signed yet. The first time you open it, macOS needs **rig
 
 ## The Studio
 
-The Studio follows the *Plotline Studio* design, with light-mode chrome and blue highlights by default (switch to dark in the header). It has two workspaces:
+Left: what you can add (**Graphics**, **Shapes**, **Characters**). Middle: preview, timeline and transcript. Right: settings for the selection (**Content**, **Style**, **Motion**, **Export**). The top bar switches between **Timeline** (a whole episode) and **Single** (one animation on its own).
 
-- **Episode**: a timeline, transcript pinning and an inspector. Click a word in the transcript to pin a graphic there. Drag clips to move them, and drag a clip's right edge to trim it.
-- **One-off**: loops a single graphic on its own, with no episode, so you can build an animation and export it.
+**Stacking.** Several graphics can be on screen in the same frame. Adding something where a graphic is already showing puts it on a new layer above. Timeline rows are layers: drag clips up or down to restack. Only the bottom graphic draws its background. Overlapping graphics preview and export together as one stack. The rules live in `src/studio/stack.ts`.
 
-Shortcuts: Space play · ← → frame · ⇧ 1 s · `[` `]` graphic · Del remove · `M` motion library.
-
-**Load footage** (video or a still) under the stage to place and size graphics on the real shot. Graphics with the Clear field render transparently over it. Drag any graphic on the stage to move it.
+The project autosaves on this computer.
 
 ### Graphics, shapes and stick figures
 
@@ -114,3 +113,5 @@ Every frame is a pure function of time, so graphics scrub, loop and export frame
 
 - `Webimation.icon`: the Icon Composer bundle. It's layered for macOS 26 Liquid Glass, and `npm run icons` compiles it with `actool`.
 - `app-icon.svg`, `logo.svg`, and the light and dark lockups.
+
+**Docs screenshots:** `node scripts/docs-screenshots.mjs` (with `npm run dev -- --port 5179` running) regenerates `docs/images`.

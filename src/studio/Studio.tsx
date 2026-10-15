@@ -33,6 +33,14 @@ const SHAPE_LABEL: Record<string, string> = { double: '2.4×', leaderline: 'Look
 const chromeAcc = (id: string) => (id === 'white' ? 'var(--fg)' : ACC[id as keyof typeof ACC] || (/^#[0-9a-f]{6}$/i.test(id) ? id : ACC.orange));
 const mix = (c: string, pct: number) => `color-mix(in srgb, ${c} ${pct}%, transparent)`;
 const newId = () => 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+/** The project is saved automatically on this computer and reopened next time. */
+const SAVE_KEY = 'webimation.project.v1';
+const loadClips = (): Clip[] | null => {
+  try {
+    const v = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+    return Array.isArray(v) && v.every(c => c && typeof c.id === 'string' && TEMPLATES[c.tpl] && typeof c.start === 'number' && typeof c.dur === 'number' && c.props && typeof c.props === 'object') ? v : null;
+  } catch { return null; }
+};
 
 function Toggle({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
   return (
@@ -61,7 +69,7 @@ const Stepper = ({ label, value, dec, inc }: { label: string; value: ReactNode; 
 
 export class Studio extends Component<Props, State> {
   state: State = {
-    clips: INIT.map(c => ({ ...c, track: 0, props: { ...c.props } })), selId: 'c3', anchor: null, playing: false, guides: false,
+    clips: loadClips() ?? INIT.map(c => ({ ...c, track: 0, props: { ...c.props } })), selId: loadClips() ? null : 'c3', anchor: null, playing: false, guides: false,
     zoom: this.props.startZoom ?? 4, exporting: null, footage: null, mode: 'timeline', banner: null, library: false, help: !helpSeen(),
     add: 'graphics', edit: 'content'
   };
@@ -99,8 +107,18 @@ export class Studio extends Component<Props, State> {
     if ((this.props.autoplay ?? true) && !this.RM) { this.t = 26.5; this.setState({ playing: true }); }
     requestAnimationFrame(() => this.follow(true));
     document.fonts?.ready.then(() => { this.dirty = true; });
+    if (import.meta.env.DEV) {
+      // Hooks for scripts/docs-screenshots.mjs: jump to an exact moment.
+      const w = window as unknown as Record<string, unknown>;
+      w.__webimationSeek = (t: number) => { this.setState({ playing: false }); this.seek(t); this.follow(true); };
+      w.__webimationSingle = (t: number) => { this.setState({ playing: false }); this.lt = t; this.dirty = true; };
+    }
   }
-  componentDidUpdate(_: Props, ps: State) { this.dirty = true; if (ps.zoom !== this.state.zoom) requestAnimationFrame(() => this.follow(true)); }
+  componentDidUpdate(_: Props, ps: State) {
+    this.dirty = true;
+    if (ps.zoom !== this.state.zoom) requestAnimationFrame(() => this.follow(true));
+    if (ps.clips !== this.state.clips) try { localStorage.setItem(SAVE_KEY, JSON.stringify(this.state.clips)); } catch { /* storage full or blocked */ }
+  }
   componentWillUnmount() { this.dead = true; cancelAnimationFrame(this.raf); window.removeEventListener('keydown', this.onKey); this.stage?.destroy(); }
 
   sel() { return this.state.clips.find(c => c.id === this.state.selId) || null; }
