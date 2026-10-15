@@ -74,7 +74,10 @@ export async function rasterize(clip: Clip, o: RasterOpts, onFrame: (canvas: HTM
       if (signal?.aborted) throw new DOMException('Export cancelled', 'AbortError');
       stage.show(clip, from + i / o.fps, { transparent: o.transparent });
       const xhtml = new XMLSerializer().serializeToString(root);
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${o.width}" height="${o.height}" viewBox="0 0 ${STAGE_W} ${STAGE_H}"><style>${fonts}</style><foreignObject x="0" y="0" width="${STAGE_W}" height="${STAGE_H}">${xhtml}</foreignObject></svg>`;
+      // Scale with CSS inside the foreignObject, not with the SVG viewBox: WebKit ignores viewBox
+      // scaling for foreignObject content, which would leave 1080p/4K frames only partly filled.
+      const k = o.width / STAGE_W;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${o.width}" height="${o.height}"><style>${fonts}</style><foreignObject x="0" y="0" width="${o.width}" height="${o.height}"><div xmlns="http://www.w3.org/1999/xhtml" style="width:${STAGE_W}px;height:${STAGE_H}px;transform:scale(${k});transform-origin:0 0">${xhtml}</div></foreignObject></svg>`;
       // A data: URL (not blob:) keeps the canvas origin-clean, so frames can be read back as PNG.
       const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
       await decode(img, url);

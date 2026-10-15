@@ -26,18 +26,24 @@ function reveal(wrap: HTMLElement, i: number, n: number, s: number, d: number, d
   const s2 = s * pr.gap, d2 = d * pr.pace, xs = D - FRAME - pr.exitDur - (n - 1 - i) * pr.exitGap;
   const def = FX[en.fx] || FX.wipe;
   const cx: FxCtx = { ein: easeFn(pr.ease), eout: exitFn(pr.ease), order: pr.order, spread: pr.spread ?? def.spread ?? 0.5, seed, dur: d2, xdur: pr.exitDur };
-  const enter: Render = def.make(tg, en.p, cx);
-  const exit: Render | null = ex ? FX[ex.fx].make(tg, ex.p, { ...cx, spread: FX[ex.fx].spread ?? 0.5 }) : null;
+  // Effects are created on the first frame, after that frame's cue swaps, so any text they split is
+  // measured in the layout it will actually be seen in.
+  let enter: Render | null = null, exit: Render | null = null;
+  const ready = () => {
+    enter = def.make(tg, en.p, cx);
+    exit = ex ? FX[ex.fx].make(tg, ex.p, { ...cx, spread: FX[ex.fx].spread ?? 0.5 }) : null;
+  };
   // Hard guarantee, independent of the effect: nothing shows before its cue or once its exit is done.
   // (Binary opacity, not a fade: descendants can't override it the way they can visibility.)
   let off: boolean | null = null;
   return (t: number) => {
     const k = prog(t, s2, d2), x = prog(t, xs, pr.exitDur), o = k <= 0 || x >= 1 - 1e-6;
     if (o !== off) { off = o; wrap.style.opacity = o ? '0' : ''; }
+    if (!enter) ready();
     if (o) return;
-    if (!exit) enter(k, x);
-    else if (x > 0) { enter(1, 0); exit(1, x); }
-    else { exit(1, 0); enter(k, 0); }
+    if (!exit) enter!(k, x);
+    else if (x > 0) { enter!(1, 0); exit(1, x); }
+    else { exit(1, 0); enter!(k, 0); }
   };
 }
 
@@ -94,11 +100,12 @@ export function build(layer: HTMLElement, clip: Clip | null, transparent = false
   const segs = q('[data-seg]').map(el => { const [f, s, d] = el.dataset.seg!.split('|').map(Number); return { el, f, s, d, w: 0 }; });
   const mv = q<SVGElement>('[data-move]').map(el => ({ el, v: nums(el.dataset.move!), press: el.dataset.press ? nums(el.dataset.press) : null }));
   return t => {
+    // Cue swaps first, so any text a reveal splits on this frame is measured in this frame's layout.
+    for (const c of cuts) c.el.style.display = t >= c.s ? c.o : 'none';
+    for (const c of untils) c.el.style.display = t < c.s ? c.o : 'none';
     for (const r of rs) r(t);
     for (const c of cs) c.el.textContent = (c.v * E.out(prog(t, c.s, c.d))).toFixed(c.dec) + c.suf;
     for (const d of ds) d.el.style.strokeDashoffset = (1 - E.out(prog(t, d.s, d.d))).toFixed(4);
-    for (const c of cuts) c.el.style.display = t >= c.s ? c.o : 'none';
-    for (const c of untils) c.el.style.display = t < c.s ? c.o : 'none';
     for (const g of segs) {
       if (!g.w) g.w = (g.el.parentElement?.clientWidth || 0) - 6;
       const n = Math.round((g.f * E.out(prog(t, g.s, g.d)) * (g.w + 2)) / 12);

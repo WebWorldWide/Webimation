@@ -66,11 +66,13 @@ export const scaleOf = (el: Element) => {
   const h = el as HTMLElement, w = h.offsetWidth;
   return w ? h.getBoundingClientRect().width / w : 1;
 };
-const rangeAt = (range: Range, node: Node, start: number, end: number) => {
+type Pos = { x: number; y: number };
+/** Position of a glyph range on screen, or null when it isn't rendered (inside display:none). */
+const rangeAt = (range: Range, node: Node, start: number, end: number): Pos | null => {
   if (typeof range.getClientRects !== 'function') return { x: 0, y: 0 };
   range.setStart(node, start); range.setEnd(node, end);
-  const r = range.getClientRects()[0] || range.getBoundingClientRect();
-  return { x: r.left, y: r.top };
+  const r = range.getClientRects()[0];
+  return r ? { x: r.left, y: r.top } : null;
 };
 
 interface Pending { node: Text; tokens: { text: string; space: boolean; at: number; brk?: boolean }[] }
@@ -103,8 +105,20 @@ function split(inner: HTMLElement, kind: SplitKind): Unit[] {
     }
   };
   walk(inner);
-  const range = document.createRange(), orig: { x: number; y: number }[] = [];
-  for (const p of pend) for (const t of p.tokens) if (!t.space && !t.brk) orig.push(rangeAt(range, p.node, t.at, t.at + graphemes(t.text)[0].length));
+  const range = document.createRange(), orig: (Pos | null)[] = [], origAll: (Pos | null)[][] = [];
+  for (const p of pend) for (const t of p.tokens) {
+    if (t.space || t.brk) continue;
+    const gs: (Pos | null)[] = [];
+    let a = t.at;
+    for (const g of graphemes(t.text)) { gs.push(rangeAt(range, p.node, a, a + g.length)); a += g.length; }
+    origAll.push(gs);
+    orig.push(gs[0]);
+  }
+  // Freeze the element's outer box: splitting may change its intrinsic size by fractions of a pixel
+  // (each unit rounds to the layout grid), which would move siblings in flex rows and stacks. Fixing the
+  // wrapper at its laid-out size (not changing its basis) leaves every sibling exactly where it was.
+  const wrap = inner.parentElement!, k0 = scaleOf(inner) || 1, box0 = wrap.getBoundingClientRect();
+  const hidden = orig.some(o => !o);
 
   // 2. Replace text with masked units.
   const units: Unit[] = [];
@@ -124,39 +138,110 @@ function split(inner: HTMLElement, kind: SplitKind): Unit[] {
       if (t.space) { word = null; frag.append(document.createTextNode(' ')); continue; }
       if (t.brk) { word = null; frag.append(document.createElement('wbr')); continue; }
       if (kind === 'char') {
-        if (!word) { word = document.createElement('span'); word.style.cssText = 'display:inline-block;white-space:nowrap'; frag.append(word); }
+        if (!word) { word = document.createElement('span'); word.dataset.w = ''; word.style.cssText = 'display:inline-block;white-space:nowrap'; frag.append(word); }
         word.append(unit(t.text));
       } else frag.append(unit(t.text));
     }
     p.node.replaceWith(frag);
   }
 
-  // 3. Put every unit back where its glyphs were: x restores kerning (splits drop it); y undoes the
-  //    baseline shift an overflow-clipped inline-block can introduce. Same measuring method both times.
-  const k = scaleOf(inner) || 1, adj = new Array<number>(units.length).fill(0);
-  const glyphAt = (u: Unit) => rangeAt(range, u.el.firstChild!, 0, graphemes(u.text)[0].length);
-  for (let pass = 0; pass < 4; pass++) {
-    let worst = 0;
-    const now = units.map(glyphAt);
-    for (let i = 0; i < units.length; i++) {
-      const dy = (orig[i].y - now[i].y) / k;
-      if (Math.abs(dy) > 0.004) {
-        worst = Math.max(worst, Math.abs(dy));
-        const m = units[i].mask;
-        m.style.position = 'relative';
-        m.style.top = ((parseFloat(m.style.top) || 0) + dy).toFixed(4) + 'px';
-      }
-      if (!i) continue;
-      const sameOrig = Math.abs(orig[i].y - orig[i - 1].y) < 1, sameNow = Math.abs(now[i].y - now[i - 1].y) < 1;
-      if (!sameOrig || !sameNow) continue;
-      const d = (orig[i].x - orig[i - 1].x - (now[i].x - now[i - 1].x)) / k;
-      if (Math.abs(d) < 0.002) continue;
-      worst = Math.max(worst, Math.abs(d));
-      adj[i - 1] += d;
-      units[i - 1].mask.style.marginRight = `${adj[i - 1].toFixed(4)}px`;
+  // 2b. Lock the original line breaks. Splitting can change where a line wraps (a word that only just
+  //     fit can be pushed down by sub-pixel differences), so break exactly where the text broke before
+  //     and nowhere else.
+  //     Only among rendered text: hidden alternates (cue swaps) have no position and never break lines.
+  let breaks = 0, prevY: number | null = null;
+  for (let i = 0; i < units.length; i++) {
+    const o = orig[i];
+    if (!o) continue;
+    if (prevY !== null && o.y > prevY + 1) {
+      const m = units[i].mask, at = m.parentElement?.dataset.w !== undefined && m.parentElement!.firstChild === m ? m.parentElement! : m;
+      at.before(document.createElement('br'));
+      breaks++;
     }
-    if (worst < 0.004) break;
+    prevY = o.y;
   }
+  if (breaks) inner.style.whiteSpace = 'nowrap';
+
+  // Only when the content is static: cue-driven swaps (data-cut/until), counters and hidden alternates
+  // legitimately change the size later.
+  if (pend.length && !hidden && !inner.querySelector('[data-cut],[data-until],[data-c],[data-val],[data-seg]')) {
+    wrap.style.boxSizing = 'border-box';
+    wrap.style.width = (box0.width / k0).toFixed(4) + 'px';
+    wrap.style.height = (box0.height / k0).toFixed(4) + 'px';
+    wrap.style.flex = '0 0 auto';
+  }
+
+  // 3. Put every unit back where its glyphs were. Relative offsets don't reflow anything, so each unit
+  //    is corrected independently against its own original position (no error can accumulate).
+  const k = scaleOf(inner) || 1;
+  const glyphs = (u: Unit) => { const out: (Pos | null)[] = []; let a = 0; for (const g of graphemes(u.text)) { out.push(rangeAt(range, u.el.firstChild!, a, a + g.length)); a += g.length; } return out; };
+  const now = units.map(u => rangeAt(range, u.el.firstChild!, 0, graphemes(u.text)[0].length));
+  const off = units.map((_, i) => { const o = orig[i], n = now[i]; return (o && n ? [(o.x - n.x) / k, (o.y - n.y) / k] : [0, 0]) as [number, number]; });
+  const put = (i: number, dx: number, dy: number) => {
+    const m = units[i].mask;
+    if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) { m.style.position = ''; m.style.left = ''; m.style.top = ''; return; }
+    m.style.position = 'relative';
+    m.style.left = dx.toFixed(4) + 'px';
+    m.style.top = dy.toFixed(4) + 'px';
+  };
+  units.forEach((_, i) => put(i, off[i][0], off[i][1]));
+  // Engines that snap glyphs to whole pixels (WebKit at 1x) round each glyph from where its run starts,
+  // so a multi-glyph unit can differ inside by 1 px. Search the sub-pixel start that reproduces the
+  // original rounding for every glyph in the unit.
+  const err = (i: number) => { const g = glyphs(units[i]), o = origAll[i]; let e = 0; for (let n = 0; n < g.length; n++) { const a = g[n], b = o[n]; if (a && b) e = Math.max(e, Math.abs(a.x - b.x), Math.abs(a.y - b.y)); } return e; };
+  units.forEach((_, i) => {
+    if (origAll[i].length < 2 || !orig[i]) return;
+    let best = err(i);
+    if (best < 0.02) return;
+    let bx = off[i][0];
+    for (let d = -0.5; d <= 0.5 + 1e-9; d += 1 / 16) {
+      put(i, off[i][0] + d / k, off[i][1]);
+      const e = err(i);
+      if (e < best - 1e-6) { best = e; bx = off[i][0] + d / k; }
+    }
+    put(i, bx, off[i][1]);
+    if (best < 0.02) return;
+    // Still off: this engine shapes from the run start and snaps every glyph, so give each glyph its
+    // own inline span and place it exactly. The unit (u.el) still moves as one piece.
+    const u = units[i], gs = graphemes(u.text);
+    u.el.textContent = '';
+    const spans = gs.map(g => { const sp = document.createElement('span'); sp.textContent = g; u.el.append(sp); return sp; });
+    put(i, off[i][0], off[i][1]);
+    for (let pass = 0; pass < 2; pass++) {
+      spans.forEach((sp, n) => {
+        const r = rangeAt(range, sp.firstChild!, 0, gs[n].length), o = origAll[i][n];
+        if (!r || !o) return;
+        const dx = (o.x - r.x) / k + (parseFloat(sp.style.left) || 0), dy = (o.y - r.y) / k + (parseFloat(sp.style.top) || 0);
+        if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return;
+        sp.style.position = 'relative';
+        sp.style.left = dx.toFixed(4) + 'px';
+        sp.style.top = dy.toFixed(4) + 'px';
+      });
+    }
+  });
+
+  // 3b. Splitting a unit into glyph spans can change its advance and move later units in the flow, so
+  //     settle every unit once more against its original position (relative offsets never reflow).
+  units.forEach((u, i) => {
+    const spans = [...u.el.children] as HTMLElement[];
+    if (spans.length) {
+      spans.forEach((sp, n) => {
+        const r = rangeAt(range, sp.firstChild!, 0, sp.textContent!.length), o = origAll[i][n];
+        if (!r || !o) return;
+        const dx = (o.x - r.x) / k, dy = (o.y - r.y) / k;
+        if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return;
+        sp.style.position = 'relative';
+        sp.style.left = ((parseFloat(sp.style.left) || 0) + dx).toFixed(4) + 'px';
+        sp.style.top = ((parseFloat(sp.style.top) || 0) + dy).toFixed(4) + 'px';
+      });
+      return;
+    }
+    const r = rangeAt(range, u.el.firstChild!, 0, graphemes(u.text)[0].length), o = orig[i];
+    if (!r || !o) return;
+    const dx = (o.x - r.x) / k, dy = (o.y - r.y) / k;
+    if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return;
+    put(i, (parseFloat(u.mask.style.left) || 0) + dx, (parseFloat(u.mask.style.top) || 0) + dy);
+  });
 
   // 4. Line index by rendered row.
   let line = -1, top = -Infinity;

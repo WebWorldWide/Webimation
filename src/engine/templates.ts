@@ -134,7 +134,7 @@ const T: Template[] = [
         ${R(0.08, 0.45, esc(P.label), { i: `${CAPS}font-size:15px;color:var(--w-fg)` })}
         ${R(0.14, 0.5, esc(P.handle), { w: 'padding-bottom:6px', i: `${SANS}font-weight:600;font-size:56px;line-height:1.05;letter-spacing:-.01em;color:var(--w-fg)` })}
         <div style="display:flex;gap:18px;align-items:center;margin-top:4px">
-          ${R(0.3, 0.45, `<div data-until="1.35" style="background:var(--w-plate);color:var(--w-plate-fg);padding:18px 30px;${CAPS}font-size:18px">${esc(P.cta)}</div><div data-cut="1.35" style="display:flex;align-items:center;gap:12px;background:var(--w-plate2);color:var(--w-plate2-fg);box-shadow:inset 0 0 0 2px var(--w-plate2-fg);padding:18px 30px;${CAPS}font-size:18px"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 8.5L6 12.5L14 3.5" fill="none" stroke="${a}" stroke-width="3"></path></svg>Subscribed</div>`)}
+          ${R(0.3, 0.45, `<div data-until="1.35" data-nosplit style="background:var(--w-plate);color:var(--w-plate-fg);padding:18px 30px;${CAPS}font-size:18px">${esc(P.cta)}</div><div data-cut="1.35" data-nosplit style="display:flex;align-items:center;gap:12px;background:var(--w-plate2);color:var(--w-plate2-fg);box-shadow:inset 0 0 0 2px var(--w-plate2-fg);padding:18px 30px;${CAPS}font-size:18px"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 8.5L6 12.5L14 3.5" fill="none" stroke="${a}" stroke-width="3"></path></svg>Subscribed</div>`)}
           <div data-cut="1.6" style="display:flex;align-items:center;gap:10px;${CAPS}font-size:14px;color:var(--w-fg)"><span style="width:12px;height:12px;background:${a}"></span>Notifications on</div>
         </div>
       </div></div>
