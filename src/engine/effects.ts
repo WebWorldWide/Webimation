@@ -8,7 +8,7 @@
 import { cl, type Ease } from './easing';
 import { band, cells, EMPTY, FULL, isH, morton, poly, slats, within, type Dir, type Rect } from './geom';
 import { hash, ranks, rng, shuffle, type Order } from './rand';
-import { scaleOf, type Target, type Unit } from './target';
+import { scaleOf, UCLIP, type Target, type Unit } from './target';
 import { INK } from './tokens';
 
 export type Params = Record<string, string | number>;
@@ -156,11 +156,21 @@ const slidePct = (dir: string, a: number, b: number, pct: number) => {
   const [ox, oy] = OFF[dir] || OFF.up, m = (1 - a) - b;
   return `translate(${(ox * m * pct).toFixed(3)}%,${(oy * m * pct).toFixed(3)}%)`;
 };
-/** Unit offset: its own size plus the mask's bleed (.3em vertical, .14em horizontal) on both sides. */
+/** Unit offset: its own size plus the clip bleed (.35em vertical, .16em horizontal) on both sides. */
 const slideUnit = (dir: string, a: number, b: number) => {
   const [ox, oy] = OFF[dir] || OFF.up, m = (1 - a) - b;
   const c = (o: number, pad: number) => (o ? `calc(${(o * m * 100).toFixed(3)}% + ${(o * m * pad).toFixed(4)}em)` : '0px');
-  return `translate(${c(ox, 0.3)},${c(oy, 0.62)})`;
+  return `translate(${c(ox, 0.34)},${c(oy, 0.72)})`;
+};
+/** A unit's wipe: hard edge across the glyph box, keeping the bleed on the other three sides. */
+const unitBand = (d: Dir, a: number, b: number) => {
+  const A = (a * 100).toFixed(3), B = (b * 100).toFixed(3), off = (v: string) => `calc(${(100 - +v).toFixed(3)}%)`;
+  switch (d) {
+    case 'right': return `inset(-.35em ${off(A)} -.35em ${+B ? B + '%' : '-.16em'})`;
+    case 'left': return `inset(-.35em ${+B ? B + '%' : '-.16em'} -.35em ${off(A)})`;
+    case 'down': return `inset(${+B ? B + '%' : '-.35em'} -.16em ${off(A)} -.16em)`;
+    default: return `inset(${off(A)} -.16em ${+B ? B + '%' : '-.35em'} -.16em)`;
+  }
 };
 
 // ── text plumbing ──────────────────────────────────────────────────────────
@@ -684,7 +694,7 @@ const defs: EffectDef[] = [
     variant: p => ARROW[p.dir],
     make(tg, p, cx) {
       const d = p.dir as Dir;
-      return perUnit(tg, 'char', cx, u => { const set = clipper(u.mask); return (a, b) => set(a >= 1 && b <= 0 ? FULL : poly([band(d, cx.ein(a), cx.eout(b))])); });
+      return perUnit(tg, 'char', cx, u => { const set = clipper(u.mask); return (a, b) => set(a >= 1 && b <= 0 ? UCLIP : a <= 0 || b >= 1 ? EMPTY : unitBand(d, cx.ein(a), cx.eout(b))); });
     }
   },
   {

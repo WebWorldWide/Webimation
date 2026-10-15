@@ -1,22 +1,29 @@
 import { Component, createRef, type CSSProperties } from 'react';
-import { ACC, BASE_REVEALS, createStage, getPreset, LIBRARY, LIBRARY_TEMPLATES, presetName, TEMPLATES, type Clip, type Stage } from '../engine';
-import { clamp, FMT, fmt, fmtS, FPS, INIT, LINES, now, pad, REVEAL_NOTE, TOTAL, WORDS, type FmtId } from './data';
+import { ACC, BASE_REVEALS, createStage, getPreset, LIBRARY, LIBRARY_TEMPLATES, presetName, SHAPE, SHAPE_GROUPS, SHAPES, TEMPLATES, type Clip, type Stage } from '../engine';
+import { clamp, fmt, fmtS, FPS, INIT, LINES, now, pad, REVEAL_NOTE, TOTAL, WORDS } from './data';
 import { isDesktop, isMac } from './desktop';
 import { MotionLibrary } from './MotionLibrary';
+import { ExportPanel } from './ExportPanel';
+import { ShapePanel } from './ShapePanel';
 import { StylePanel } from './StylePanel';
 import { ThemeSwitch } from './ThemeSwitch';
 
 interface Props { autoplay?: boolean; defaultReveal?: string; startZoom?: 1 | 2 | 4 }
-interface Job { id: number; name: string; fmt: FmtId; p: number; status: 'wait' | 'run' | 'done'; mult: number }
 interface State {
   clips: Clip[]; selId: string | null; anchor: { t: number; w: string } | null; playing: boolean; guides: boolean; loop: boolean;
-  zoom: number; fmt: FmtId; jobs: Job[]; banner: { title: string; sub: string } | null; log: { time: string; msg: string }[]; library: boolean;
+  zoom: number; exporting: { name: string; p: number } | null;
+  /** Footage shown under the stage so graphics can be placed and sized on the real shot. */
+  footage: { url: string; kind: 'video' | 'image'; name: string } | null;
+  /** 'single' loops one graphic on its own (one-off animations); 'episode' plays the timeline. */
+  mode: 'episode' | 'single'; banner: { title: string; sub: string } | null; log: { time: string; msg: string }[]; library: boolean;
 }
 
 const HAIR = '1px solid var(--line)';
 const capsLabel: CSSProperties = { fontSize: 10.5, fontWeight: 600, fontStretch: '78%', letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--label)' };
 const mono = (size: number, color = 'var(--muted)'): CSSProperties => ({ fontFamily: 'ui-monospace,Menlo,monospace', fontSize: size, color });
-const tplName = (c: Clip) => TEMPLATES[c.tpl]?.name ?? c.tpl;
+const tplName = (c: Clip) => (c.tpl === 'shape' ? SHAPE[c.props.shape]?.name ?? 'Shape' : TEMPLATES[c.tpl]?.name ?? c.tpl);
+/** Starter labels for shapes that carry text. */
+const SHAPE_LABEL: Record<string, string> = { double: '2.4×', leaderline: 'Look here', bubble: 'This is the trick', pin: 'Reykjavík', number: '1', bracket: 'First 48 h', tag: 'New', progress: 'Rendering · 72%' };
 const isBase = (r: string | undefined) => BASE_REVEALS.some(b => b[0] === r);
 /** Graphic accents as chrome colours: white reads as ink on light chrome. */
 const chromeAcc = (id: string) => (id === 'white' ? 'var(--fg)' : ACC[id as keyof typeof ACC] || ACC.orange);
@@ -34,10 +41,13 @@ function Toggle({ on, label, onClick }: { on: boolean; label: string; onClick: (
 export class Studio extends Component<Props, State> {
   state: State = {
     clips: INIT.map(c => ({ ...c, props: { ...c.props } })), selId: 'c3', anchor: null, playing: false, guides: true, loop: true,
-    zoom: this.props.startZoom ?? 4, fmt: 'mp4', jobs: [], banner: null, library: false,
+    zoom: this.props.startZoom ?? 4, exporting: null, footage: null, mode: 'episode', banner: null, library: false,
     log: [{ time: now(), msg: 'Transcript synced · 16 lines' }, { time: now(), msg: 'Opened ep-001-final.mov' }]
   };
   t = 27.8;
+  /** Local time inside the selected graphic in one-off mode. */
+  lt = 0;
+  videoRef = createRef<HTMLVideoElement>(); fileRef = createRef<HTMLInputElement>(); clipRangeRef = createRef<HTMLInputElement>();
   RM = false; dead = false; dirty = true; prev = 0; raf = 0; timer = 0;
   stage: Stage | null = null;
   stageRef = createRef<HTMLDivElement>(); playRef = createRef<HTMLDivElement>(); tcRef = createRef<HTMLSpanElement>();
@@ -53,7 +63,11 @@ export class Studio extends Component<Props, State> {
     const loop = (ts: number) => {
       const dt = Math.min(0.05, (ts - this.prev) / 1000);
       this.prev = ts;
-      if (this.state.playing) {
+      if (this.state.playing && this.state.mode === 'single') {
+        const c = this.sel();
+        if (c) this.lt = (this.lt + dt) % (c.dur + 0.4);
+        this.draw();
+      } else if (this.state.playing) {
         let t = this.t + dt;
         const c = this.sel();
         if (this.state.loop && c && this.t >= c.start && this.t < c.start + c.dur && t >= c.start + c.dur) t = c.start;
@@ -63,23 +77,45 @@ export class Studio extends Component<Props, State> {
       this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
-    this.timer = window.setInterval(() => this.renderTick(), 100);
     if ((this.props.autoplay ?? true) && !this.RM) { this.t = 26.5; this.setState({ playing: true }); }
     requestAnimationFrame(() => this.follow(true));
     document.fonts?.ready.then(() => { this.dirty = true; });
   }
   componentDidUpdate(_: Props, ps: State) { this.dirty = true; if (ps.zoom !== this.state.zoom) requestAnimationFrame(() => this.follow(true)); }
-  componentWillUnmount() { this.dead = true; cancelAnimationFrame(this.raf); clearInterval(this.timer); window.removeEventListener('keydown', this.onKey); this.stage?.destroy(); }
+  componentWillUnmount() { this.dead = true; cancelAnimationFrame(this.raf); window.removeEventListener('keydown', this.onKey); this.stage?.destroy(); }
 
   sel() { return this.state.clips.find(c => c.id === this.state.selId) || null; }
   sorted() { return [...this.state.clips].sort((a, b) => a.start - b.start); }
   active(t: number) { let r: Clip | null = null; for (const c of this.sorted()) if (t >= c.start && t < c.start + c.dur) r = c; return r; }
   draw() {
-    const t = this.t, c = this.active(t);
-    this.stage?.show(c, c ? (this.RM ? Math.min(c.dur - 0.5, 2.4) : t - c.start) : 0, { guides: this.state.guides });
+    const single = this.state.mode === 'single', t = this.t, c = single ? this.sel() : this.active(t);
+    const lt = c ? (this.RM ? Math.min(c.dur - 0.5, 2.4) : single ? this.lt : t - c.start) : 0;
+    // Over loaded footage, 'clear' graphics (and empty frames) render transparent so the shot shows through.
+    const transparent = !!this.state.footage && (!c || (c.props.field ?? TEMPLATES[c.tpl]?.field) === 'clear');
+    this.stage?.show(c, lt, { guides: this.state.guides, transparent });
+    this.syncFootage(single && c ? c.start + lt : t);
+    if (this.clipRangeRef.current && c) { this.clipRangeRef.current.max = String(c.dur); this.clipRangeRef.current.value = String(lt); }
     if (this.playRef.current) this.playRef.current.style.left = (t / TOTAL) * 100 + '%';
-    if (this.tcRef.current) this.tcRef.current.textContent = fmt(t);
+    if (this.tcRef.current) this.tcRef.current.textContent = fmt(single ? lt : t);
     if (this.nowRef.current) this.nowRef.current.textContent = c ? `${pad(this.sorted().indexOf(c) + 1)} · ${tplName(c)} · ${presetName(c.props.reveal)}` : 'A-roll · no graphic';
+  }
+  syncFootage(at: number) {
+    const v = this.videoRef.current;
+    if (!v || !v.duration) return;
+    const want = at % v.duration;
+    if (this.state.playing) {
+      if (v.paused) v.play().catch(() => {});
+      if (Math.abs(v.currentTime - want) > 0.2) v.currentTime = want;
+    } else {
+      if (!v.paused) v.pause();
+      if (Math.abs(v.currentTime - want) > 1 / 60) v.currentTime = want;
+    }
+  }
+  loadFootage(f: File) {
+    if (this.state.footage) URL.revokeObjectURL(this.state.footage.url);
+    const kind = f.type.startsWith('image') ? 'image' : 'video';
+    this.setState({ footage: { url: URL.createObjectURL(f), kind, name: f.name } });
+    this.log(`Loaded footage ${f.name}`);
   }
   follow(force?: boolean) {
     const sc = this.scrollRef.current;
@@ -92,13 +128,13 @@ export class Studio extends Component<Props, State> {
   log(msg: string) { this.setState(s => ({ log: [{ time: now(), msg }, ...s.log].slice(0, 7) })); }
   select(id: string) { const c = this.state.clips.find(x => x.id === id); this.setState({ selId: id, anchor: null }); if (c) this.seek(this.poster(c)); }
 
-  pin(tpl: string, at: number) {
+  pin(tpl: string, at: number, extra: Record<string, string> = {}) {
     const T = TEMPLATES[tpl], start = +clamp(at, 0, TOTAL - T.dur).toFixed(2), id = 'c' + Date.now().toString(36);
-    const clip: Clip = { id, tpl, start, dur: T.dur, props: { ...T.d, accent: T.accent, field: T.field, reveal: this.props.defaultReveal ?? 'wipe' } };
+    const clip: Clip = { id, tpl, start, dur: T.dur, props: { ...T.d, accent: T.accent, field: T.field, reveal: this.props.defaultReveal ?? 'wipe', ...extra } };
     this.setState(s => ({ clips: [...s.clips, clip], selId: id, anchor: null }));
     this.seek(start);
     if (!this.state.playing) this.setState({ playing: !this.RM });
-    this.log(`Pinned ${T.name} at ${fmtS(start)}`);
+    this.log(`Pinned ${tplName(clip)} at ${fmtS(start)}`);
   }
   patch(fn: (c: Clip) => Clip) { const id = this.state.selId; this.setState(s => ({ clips: s.clips.map(c => (c.id === id ? fn(c) : c)) })); }
   setProp(k: string, v: string) { this.patch(c => ({ ...c, props: { ...c.props, [k]: v } })); }
@@ -110,7 +146,7 @@ export class Studio extends Component<Props, State> {
       return { ...c, props };
     });
   }
-  replay() { const c = this.sel(); if (!c) return; this.seek(c.start); this.setState({ playing: true }); }
+  replay() { const c = this.sel(); if (!c) return; this.lt = 0; this.seek(c.start); this.setState({ playing: true }); }
   remove() { const c = this.sel(); if (!c) return; this.setState(s => ({ clips: s.clips.filter(x => x.id !== c.id), selId: null })); this.log(`Removed ${tplName(c)}`); }
   duplicate() {
     const c = this.sel();
@@ -130,28 +166,37 @@ export class Studio extends Component<Props, State> {
     const p = LIBRARY[Math.floor(Math.random() * LIBRARY.length)];
     this.setProp('reveal', p.id); this.replay(); this.log(`Motion → ${p.name}`);
   }
-  queue(name: string, fmtId: FmtId, mult: number) { this.setState(s => ({ jobs: [...s.jobs, { id: Date.now() + Math.random(), name, fmt: fmtId, p: 0, status: 'wait', mult }] })); this.log(`Queued ${name}`); }
-  renderTick() {
-    const jobs = this.state.jobs, i = jobs.findIndex(j => j.status !== 'done');
-    if (i < 0) return;
-    const j = jobs[i], np = Math.min(1, j.p + (FMT[j.fmt].rate * (0.6 + Math.random() * 0.8)) / j.mult), done = np >= 1;
-    this.setState(s => ({
-      jobs: s.jobs.map(x => (x.id === j.id ? { ...x, p: np, status: done ? 'done' : 'run' } : x)),
-      banner: done ? { title: `Render complete — ${j.name}`, sub: `${FMT[j.fmt].label} ${FMT[j.fmt].note} → ~/Movies/Webimation/` } : s.banner
-    }));
-    if (done) this.log(`Rendered ${j.name}`);
-  }
   key(e: KeyboardEvent) {
     if (this.state.library) return;
     const tg = (e.target as HTMLElement | null)?.tagName;
     if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT') return;
     if (e.code === 'Space') { e.preventDefault(); this.setState(s => ({ playing: !s.playing })); }
+    else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && this.state.mode === 'single') { e.preventDefault(); const c = this.sel(); this.setState({ playing: false }); if (c) this.lt = clamp(this.lt + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 1 : 1 / FPS), 0, c.dur); this.dirty = true; }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); this.setState({ playing: false }); this.seek(this.t + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 1 : 1 / FPS)); this.follow(); }
     else if (e.key === '[' || e.key === ']') this.step(e.key === ']' ? 1 : -1);
     else if (e.key === 'Delete' || e.key === 'Backspace') { if (this.sel()) { e.preventDefault(); this.remove(); } }
     else if (e.key === 'Escape') this.setState({ anchor: null });
     else if (e.key === 'm' || e.key === 'M') this.setState({ library: true });
   }
+  /** Drag the graphic on the stage: moves shapes by their centre, other graphics by pixel nudge. */
+  stageDown = (e: React.PointerEvent) => {
+    const c = this.active(this.t);
+    if (e.button || !c) return;
+    if (c.id !== this.state.selId) this.setState({ selId: c.id, anchor: null });
+    const host = this.stageRef.current!, k = host.clientWidth / 1280, x0 = e.clientX, y0 = e.clientY;
+    const shape = c.tpl === 'shape', kx = shape ? 'sx' : 'nx', ky = shape ? 'sy' : 'ny';
+    const bx = parseFloat(c.props[kx]) || (shape ? 640 : 0), by = parseFloat(c.props[ky]) || (shape ? 360 : 0);
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      let dx = (ev.clientX - x0) / k, dy = (ev.clientY - y0) / k;
+      if (!moved && Math.hypot(dx, dy) < 3) return;
+      moved = true;
+      if (ev.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+      this.patch(cl => ({ ...cl, props: { ...cl.props, [kx]: String(Math.round(bx + dx)), [ky]: String(Math.round(by + dy)) } }));
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); if (moved) this.log(`Moved ${tplName(c)} on stage`); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
   scrubDown = (e: React.PointerEvent) => {
     if (e.button) return;
     const move = (ev: PointerEvent | React.PointerEvent) => { const r = this.tlRef.current!.getBoundingClientRect(); this.seek(((ev.clientX - r.left) / r.width) * TOTAL); };
@@ -184,7 +229,7 @@ export class Studio extends Component<Props, State> {
 
   render() {
     const s = this.state, cs = this.sorted(), sel = this.sel(), idx = sel ? cs.indexOf(sel) : -1;
-    const run = s.jobs.find(j => j.status === 'run') || s.jobs.find(j => j.status === 'wait');
+    const run = s.exporting;
     const ticks: { left: string; h: number; c: string }[] = [], marks: { left: string; label: string }[] = [];
     for (let k = 0; k <= TOTAL; k += 5) {
       const big = k % 30 === 0;
@@ -205,7 +250,10 @@ export class Studio extends Component<Props, State> {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 26, padding: '0 10px', border: '1px solid var(--line-strong)', ...capsLabel, color: 'var(--fg-2)' }}>
             <span style={{ width: 7, height: 7, background: run ? 'var(--hi)' : 'var(--ok)' }} />
-            <span>{run ? `Rendering · ${run.name} · ${Math.floor(run.p * 100)}%` : `Ep. 001 · ${s.clips.length} graphics · Saved`}</span>
+            <span>{run ? `Exporting · ${run.name} · ${Math.floor(run.p * 100)}%` : `Ep. 001 · ${s.clips.length} graphics · Saved`}</span>
+          </div>
+          <div className="seg tight" role="group" aria-label="Workspace">
+            {([['episode', 'Episode'], ['single', 'One-off']] as const).map(([m, label]) => <button key={m} className={'ease' + (s.mode === m ? ' on' : '')} aria-pressed={s.mode === m} onClick={() => { this.lt = 0; this.setState({ mode: m }); }}>{label}</button>)}
           </div>
           <button className="btn btn-sm ease" onClick={() => this.setState({ library: true })} title="Motion library (M)">Motion library · {LIBRARY.length}</button>
           <span style={{ flex: 1 }} />
@@ -225,6 +273,14 @@ export class Studio extends Component<Props, State> {
                   <span style={mono(11.5)}>{LINES.length} transcript lines</span>
                 </div>
               </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 12, borderTop: '1px solid var(--line-soft)' }}>
+                <span style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--muted)' }}>{s.footage ? <>Showing <span className="mono" style={{ color: 'var(--fg-2)' }}>{s.footage.name}</span> under the stage. Clear-field graphics render over it.</> : 'Load your footage to place and size graphics on the real shot. It stays on your computer.'}</span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-sm ease" onClick={() => this.fileRef.current?.click()}>{s.footage ? 'Replace footage' : 'Load footage…'}</button>
+                  {s.footage && <button className="btn-text" onClick={() => { URL.revokeObjectURL(s.footage!.url); this.setState({ footage: null }); }}>Remove</button>}
+                </div>
+                <input ref={this.fileRef} type="file" accept="video/*,image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) this.loadFootage(f); e.target.value = ''; }} />
+              </div>
             </section>
             <section style={{ padding: '20px 0 12px', borderBottom: HAIR }}>
               <div style={{ padding: '0 20px 12px', display: 'flex', justifyContent: 'space-between', gap: 8 }}><span style={capsLabel}>Library</span><span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Click to pin at playhead</span></div>
@@ -237,6 +293,17 @@ export class Studio extends Component<Props, State> {
                   </button>
                 );
               })}
+            </section>
+            <section style={{ padding: '20px 0 12px', borderBottom: HAIR }}>
+              <div style={{ padding: '0 20px 12px', display: 'flex', justifyContent: 'space-between', gap: 8 }}><span style={capsLabel}>Shapes</span><span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{SHAPES.length} kinds</span></div>
+              {SHAPE_GROUPS.map(g => (
+                <div key={g} style={{ borderTop: '1px solid var(--line-soft)', padding: '8px 20px 10px' }}>
+                  <div style={{ ...capsLabel, fontSize: 9.5, paddingBottom: 6 }}>{g}</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {SHAPES.filter(x => x.group === g).map(x => <button key={x.id} className="btn btn-sm ease" title={x.blurb} onClick={() => this.pin('shape', this.t, { shape: x.id, label: SHAPE_LABEL[x.id] ?? '' })}>{x.name}</button>)}
+                  </div>
+                </div>
+              ))}
             </section>
             <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <span style={{ ...capsLabel, paddingBottom: 4 }}>Activity</span>
@@ -265,7 +332,11 @@ export class Studio extends Component<Props, State> {
               <Toggle on={s.loop} label="Loop clip" onClick={() => this.setState({ loop: !s.loop })} />
             </div>
 
-            <div ref={this.stageRef} style={{ position: 'relative', aspectRatio: '16/9', overflow: 'hidden', background: '#111113', boxShadow: '0 0 0 1px var(--stage-ring)' }} />
+            <div style={{ position: 'relative', aspectRatio: '16/9', overflow: 'hidden', background: s.footage ? '#000' : '#111113', boxShadow: '0 0 0 1px var(--stage-ring)' }}>
+              {s.footage?.kind === 'video' && <video ref={this.videoRef} src={s.footage.url} muted playsInline preload="auto" onLoadedMetadata={() => { this.dirty = true; }} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />}
+              {s.footage?.kind === 'image' && <img src={s.footage.url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />}
+              <div ref={this.stageRef} onPointerDown={this.stageDown} title="Drag to move the graphic" style={{ position: 'absolute', inset: 0, cursor: 'move', touchAction: 'none' }} />
+            </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
               <button className="icon-btn ease" aria-label="Previous graphic" onClick={() => this.step(-1)}><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 1.5V10.5M10.5 1.5L4 6L10.5 10.5Z" fill="currentColor" stroke="currentColor" strokeWidth="1.4" /></svg></button>
@@ -273,7 +344,7 @@ export class Studio extends Component<Props, State> {
                 {s.playing ? <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 1H5V11H2ZM7 1H10V11H7Z" fill="currentColor" /></svg> : <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2.5 1L11 6L2.5 11Z" fill="currentColor" /></svg>}
               </button>
               <button className="icon-btn ease" aria-label="Next graphic" onClick={() => this.step(1)}><svg width="12" height="12" viewBox="0 0 12 12"><path d="M10 1.5V10.5M1.5 1.5L8 6L1.5 10.5Z" fill="currentColor" stroke="currentColor" strokeWidth="1.4" /></svg></button>
-              <span ref={this.tcRef} style={{ ...mono(15, 'var(--fg)'), padding: '0 4px 0 10px', fontVariantNumeric: 'tabular-nums' }}>00:00:00</span><span style={mono(13)}>/ 03:00:00</span>
+              <span ref={this.tcRef} style={{ ...mono(15, 'var(--fg)'), padding: '0 4px 0 10px', fontVariantNumeric: 'tabular-nums' }}>00:00:00</span><span style={mono(13)}>/ {s.mode === 'single' && sel ? fmt(sel.dur) : '03:00:00'}</span>
               <span style={{ flex: 1 }} />
               <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Space play · ← → frame · ⇧ 1 s · [ ] graphic · Del remove · M motion</span>
               <div className="seg tight">
@@ -281,6 +352,22 @@ export class Studio extends Component<Props, State> {
               </div>
             </div>
 
+            {s.mode === 'single' ? (
+              <section style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16, border: HAIR, background: 'var(--panel)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                  <span style={capsLabel}>One-off · {sel ? tplName(sel) : 'nothing selected'}</span>
+                  <span style={mono(11.5)}>{sel ? `${sel.dur.toFixed(1)} s · loops` : ''}</span>
+                </div>
+                {sel ? (
+                  <input ref={this.clipRangeRef} className="range" type="range" min={0} max={sel.dur} step={1 / FPS} defaultValue={0} aria-label="Scrub graphic"
+                    onInput={e => { this.setState({ playing: false }); this.lt = +(e.target as HTMLInputElement).value; this.dirty = true; }} />
+                ) : null}
+                <span style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--muted)' }}>
+                  Build a single animation without an episode: pick a graphic or shape from the left, style it in the inspector, drag it on the stage, then export it as ProRes 4444, WebM or PNG with a transparent background and drop it on a track in your editor.
+                </span>
+              </section>
+            ) : (
+              <>
             <div style={{ border: HAIR, background: 'var(--panel)' }}>
               <div ref={this.scrollRef} style={{ overflowX: 'auto', overflowY: 'hidden' }}>
                 <div ref={this.tlRef} onPointerDown={this.scrubDown} style={{ position: 'relative', width: s.zoom * 100 + '%', minWidth: '100%', userSelect: 'none', touchAction: 'none', cursor: 'default' }}>
@@ -338,6 +425,8 @@ export class Studio extends Component<Props, State> {
                 ))}
               </div>
             </section>
+              </>
+            )}
           </main>
 
           <aside style={{ flex: '0 0 320px', minWidth: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: 'var(--panel)', borderLeft: HAIR }}>
@@ -346,7 +435,8 @@ export class Studio extends Component<Props, State> {
               {sel ? (
                 <>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}><span style={{ fontFamily: "'Instrument Serif',serif", fontSize: 38, lineHeight: 1, color: 'var(--fg)' }}>{tplName(sel)}</span><span style={mono(11.5)}>IN {fmt(sel.start)} · OUT {fmt(sel.start + sel.dur)}</span></div>
-                  {TEMPLATES[sel.tpl].fields.map(([k, label]) => (
+                  {sel.tpl === 'shape' && <ShapePanel props={sel.props} set={(k, v) => this.setProp(k, v)} setMany={p => this.setProps(p)} />}
+                  {TEMPLATES[sel.tpl].fields.filter(([k]) => sel.tpl !== 'shape' || (k === 'label' && SHAPE[sel.props.shape]?.label)).map(([k, label]) => (
                     <label key={sel.id + k} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}><span style={capsLabel}>{label}</span><input className="field-input ease" value={sel.props[k] ?? ''} onChange={e => this.setProp(k, e.target.value)} /></label>
                   ))}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}><span style={capsLabel}>Reveal</span>
@@ -380,37 +470,13 @@ export class Studio extends Component<Props, State> {
               )}
             </section>
 
-            <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <span style={capsLabel}>Render</span>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 1, background: 'var(--line)', border: HAIR }}>
-                {(Object.keys(FMT) as FmtId[]).map(id => {
-                  const F = FMT[id], on = s.fmt === id;
-                  return (
-                    <button key={id} className="ease" onClick={() => this.setState({ fmt: id })} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3, padding: '9px 10px', background: on ? 'var(--primary)' : 'var(--panel)', color: on ? 'var(--primary-fg)' : 'var(--fg-2)', border: 0, cursor: 'pointer', textAlign: 'left' }}>
-                      <span style={{ fontSize: 10.5, fontWeight: 600, fontStretch: '78%', letterSpacing: '.12em', textTransform: 'uppercase' }}>{F.label}</span><span style={mono(10.5, on ? 'var(--on-sub)' : 'var(--muted)')}>{F.note}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn-primary ease" style={{ flex: 1 }} disabled={!sel} onClick={() => { if (sel) this.queue(`${pad(idx + 1)} ${tplName(sel)}`, s.fmt, 1); }}>Render graphic</button>
-                <button className="btn ease" style={{ flex: 1 }} onClick={() => this.queue(`Ep. 001 · all ${s.clips.length} graphics`, s.fmt, Math.max(1, s.clips.length / 2))}>Render all</button>
-              </div>
-              {!s.jobs.length && <span style={{ fontSize: 13, color: 'var(--muted)' }}>Queue is empty.</span>}
-              {s.jobs.map(j => {
-                const c = j.status === 'done' ? 'var(--ok)' : 'var(--hi)';
-                return (
-                  <div key={j.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 10, borderTop: '1px solid var(--line-soft)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 13 }}>
-                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--fg)' }}>{j.name}</span>
-                      <span style={{ flex: 'none', ...mono(11.5, j.status === 'done' ? 'var(--ok)' : j.status === 'run' ? 'var(--fg-2)' : 'var(--muted)') }}>{j.status === 'done' ? 'DONE' : j.status === 'run' ? Math.floor(j.p * 100) + '%' : 'WAITING'}</span>
-                    </div>
-                    <div style={{ height: 10, boxSizing: 'border-box', border: '1px solid var(--line-strong)', padding: 1 }}><div style={{ height: '100%', width: (Math.floor(j.p * 40) / 40) * 100 + '%', backgroundImage: `repeating-linear-gradient(90deg,${c} 0 6px,transparent 6px 8px)` }} /></div>
-                    <span style={mono(11)}>{FMT[j.fmt].label} · {FMT[j.fmt].note}</span>
-                  </div>
-                );
-              })}
-            </section>
+            <ExportPanel
+              sel={sel ? { clip: sel, name: `${pad(idx + 1)} ${tplName(sel)}` } : null}
+              all={cs.map((c, i) => ({ clip: c, name: `${pad(i + 1)} ${tplName(c)}` }))}
+              onLog={m => this.log(m)}
+              onDone={(title, sub) => this.setState({ banner: { title, sub } })}
+              onStatus={st => this.setState({ exporting: st })}
+            />
           </aside>
         </div>
 

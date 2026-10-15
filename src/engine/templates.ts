@@ -5,6 +5,7 @@
 //   data-cut="t" / data-until="t"  frame cut on / off         data-move="x0,y0,x1,y1,s,d" cursor move
 //   data-seg="frac|s|d"  bar fills in whole 12 px segments     data-press="t0,t1" press scale
 import { E, prog as p } from './easing';
+import { shapeHtml, shapeUpdate } from './shapeRender';
 import { CAPS, esc, INK, MONO, NUM, SANS, SERIF, type AccentId } from './tokens';
 
 export interface Clip {
@@ -253,6 +254,13 @@ const T: Template[] = [
       </div>`).join('')}
       </div></div>`;
     }
+  },
+
+  // ── shapes: arrows, callouts, frames, marks (see shapes.ts) ───────────────
+  {
+    id: 'shape', name: 'Shape', dur: 4, hidden: true, fields: [['label', 'Label']], d: { shape: 'arrow', label: '' }, accent: 'orange', field: 'clear',
+    html: (P, a, _c, ai) => shapeHtml(P, a, ai),
+    update: (layer, clip) => shapeUpdate(layer, clip)
   },
 
   // ── preview specimen for the motion library ──────────────────────────────

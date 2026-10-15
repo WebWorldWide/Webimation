@@ -44,7 +44,7 @@ function reveal(wrap: HTMLElement, i: number, n: number, s: number, d: number, d
 /** Move/scale the template's content per the clip's placement props (before any target is measured). */
 function place(layer: HTMLElement, content: HTMLElement, P: Record<string, string>) {
   if (!P.place && !P.size && !P.nx && !P.ny) return;
-  const els = [...content.querySelectorAll<HTMLElement>('[data-r],[data-move]')];
+  const els = [...content.querySelectorAll<HTMLElement>('[data-r],[data-move],[data-box]')];
   if (!els.length) return;
   const lr = layer.getBoundingClientRect(), k = lr.width / STAGE_W || 1;
   const box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
@@ -62,17 +62,19 @@ function place(layer: HTMLElement, content: HTMLElement, P: Record<string, strin
   content.dataset.k = String(pl.size);
 }
 
-export function build(layer: HTMLElement, clip: Clip | null): ((t: number) => void) | null {
+export function build(layer: HTMLElement, clip: Clip | null, transparent = false): ((t: number) => void) | null {
   const base = 'position:absolute;inset:0;overflow:hidden;';
   const T = clip && TEMPLATES[clip.tpl];
   if (!clip || !T) {
+    if (transparent) { layer.style.cssText = base; layer.innerHTML = ''; return null; }
     layer.style.cssText = base + 'background:#111113';
     layer.innerHTML = `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px"><span style="${CAPS}font-size:18px;color:#8B9198">A-roll · Camera 1</span><span style="${SANS}font-size:22px;color:#8B9198">No graphic at this frame</span></div>`;
     return null;
   }
   const P: Record<string, string> = { accent: T.accent, field: T.field, ...T.d, ...clip.props };
   const a = accentHex(P.accent), ai = onAccent(P.accent), D = clip.dur, pr = clip.motion ?? getPreset(P.reveal);
-  layer.style.cssText = base + fieldCss(P).css;
+  // Transparent: no field at all (export with alpha, or preview over loaded footage).
+  layer.style.cssText = base + (transparent ? 'background:transparent;' : fieldCss(P).css);
   for (const [k, v] of Object.entries({ ...typeVars(P), ...colorVars(P) })) layer.style.setProperty(k, v);
   const content = document.createElement('div');
   content.style.cssText = 'position:absolute;inset:0';
@@ -81,6 +83,8 @@ export function build(layer: HTMLElement, clip: Clip | null): ((t: number) => vo
   place(layer, content, P);
   const q = <E extends Element = HTMLElement>(s: string) => [...layer.querySelectorAll<E>(s)];
   const nums = (s: string) => s.split(',').map(Number);
+  // Template logic runs first: it may retime cues (shapes cue their label after the drawing lands).
+  const custom = T.update ? T.update(layer, clip) : null;
   const rEls = q('[data-r]');
   const rs = rEls.map((el, i) => { const [s, d] = nums(el.dataset.r!); return reveal(el, i, rEls.length, s, d, !!el.dataset.fx, pr, D, hash(clip.id + ':' + i), a); });
   const cs = q('[data-c]').map(el => { const [v, dec, suf, sd] = el.dataset.c!.split('|'); const [s, d] = nums(sd); return { el, v: +v, dec: +dec, suf, s, d }; });
@@ -89,7 +93,6 @@ export function build(layer: HTMLElement, clip: Clip | null): ((t: number) => vo
   const untils = q<HTMLElement | SVGElement>('[data-until]').map(el => ({ el, s: +el.dataset.until!, o: el.style.display }));
   const segs = q('[data-seg]').map(el => { const [f, s, d] = el.dataset.seg!.split('|').map(Number); return { el, f, s, d, w: 0 }; });
   const mv = q<SVGElement>('[data-move]').map(el => ({ el, v: nums(el.dataset.move!), press: el.dataset.press ? nums(el.dataset.press) : null }));
-  const custom = T.update ? T.update(layer, clip) : null;
   return t => {
     for (const r of rs) r(t);
     for (const c of cs) c.el.textContent = (c.v * E.out(prog(t, c.s, c.d))).toFixed(c.dec) + c.suf;
@@ -113,7 +116,7 @@ export function build(layer: HTMLElement, clip: Clip | null): ((t: number) => vo
 const GUIDES = '<div style="position:absolute;left:5%;top:5%;right:5%;bottom:5%;box-shadow:inset 0 0 0 1px rgba(255,255,255,.28)"></div><div style="position:absolute;left:10%;top:10%;right:10%;bottom:10%;box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)"></div><div style="position:absolute;left:628px;top:359px;width:24px;height:2px;background:rgba(255,255,255,.4)"></div><div style="position:absolute;left:639px;top:348px;width:2px;height:24px;background:rgba(255,255,255,.4)"></div>';
 
 export interface Stage {
-  show(clip: Clip | null, localTime: number, o?: { guides?: boolean }): void;
+  show(clip: Clip | null, localTime: number, o?: { guides?: boolean; transparent?: boolean }): void;
   destroy(): void;
 }
 
@@ -137,8 +140,8 @@ export function createStage(host: HTMLElement): Stage {
   document.fonts?.addEventListener('loadingdone', refont);
   return {
     show(clip, lt, o = {}) {
-      const k = clip ? clip.id + '|' + clip.tpl + '|' + clip.dur + '|' + clip.start + '|' + JSON.stringify(clip.props) + (clip.motion ? JSON.stringify(clip.motion) : '') : '-';
-      if (k !== key) { key = k; upd = build(layer, clip); }
+      const k = (o.transparent ? 'T|' : '') + (clip ? clip.id + '|' + clip.tpl + '|' + clip.dur + '|' + clip.start + '|' + JSON.stringify(clip.props) + (clip.motion ? JSON.stringify(clip.motion) : '') : '-');
+      if (k !== key) { key = k; upd = build(layer, clip, !!o.transparent); }
       guides.style.display = o.guides ? '' : 'none';
       if (upd) upd(lt);
     },

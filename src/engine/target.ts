@@ -14,7 +14,7 @@ export type SplitKind = 'char' | 'word' | 'line';
 export interface Unit {
   /** The moving glyph/word. */
   el: HTMLElement;
-  /** Its own clipping mask (padded by .3em/.14em of bleed, cancelled by negative margin). */
+  /** Its own clipping mask (clip-path extends .35em/.16em past the glyph box). */
   mask: HTMLElement;
   /** Final text of the unit, for decoders and flaps. */
   text: string;
@@ -48,7 +48,10 @@ export interface Target {
 }
 
 export const EMPTY = 'polygon(0 0,0 0,0 0)';
-const UMASK = 'display:inline-block;vertical-align:top;overflow:hidden;padding:.3em .14em;margin:-.3em -.14em;';
+// Units clip with clip-path, not overflow: an overflow-hidden inline-block takes its baseline from its
+// bottom edge, which would move every sibling aligned to it. clip-path changes nothing in layout.
+export const UCLIP = 'inset(-.35em -.16em)';
+const UMASK = `display:inline-block;clip-path:${UCLIP};`;
 const SKIP = '[data-c],[data-val],[data-nosplit],svg';
 const seg = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
 const graphemes = (s: string) => (seg ? [...seg.segment(s)].map(x => x.segment) : [...s]);
@@ -150,7 +153,7 @@ function split(inner: HTMLElement, kind: SplitKind): Unit[] {
       if (Math.abs(d) < 0.002) continue;
       worst = Math.max(worst, Math.abs(d));
       adj[i - 1] += d;
-      units[i - 1].mask.style.marginRight = `calc(-.14em + ${adj[i - 1].toFixed(4)}px)`;
+      units[i - 1].mask.style.marginRight = `${adj[i - 1].toFixed(4)}px`;
     }
     if (worst < 0.004) break;
   }

@@ -7,3 +7,6 @@ export { TEMPLATES, LIBRARY_TEMPLATES, R, type Clip, type Template } from './tem
 export { ORDERS, ORDER_LABEL, type Order } from './rand';
 export * from './fonts';
 export * from './look';
+export * from './shapes';
+export { shapeOf, shapeParams } from './shapeRender';
+export { rasterize, pngBytes, type RasterOpts } from './raster';
