@@ -11,6 +11,8 @@ import { CAPS, esc, INK, MONO, NUM, SANS, SERIF, type AccentId } from './tokens'
 
 export interface Clip {
   id: string; tpl: string; start: number; dur: number; props: Record<string, string>;
+  /** Layer in the stack (0 = bottom). Graphics on higher layers draw on top of lower ones. */
+  track?: number;
   /** Unsaved preset to preview (Motion Lab); wins over props.reveal. */
   motion?: import('./presets').Preset;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import {
-  allPresets, createStage, customPresets, defaultParams, deleteCustom, describe, EASES, EFFECTS, FX, getPreset, GROUPS, mint,
+  allPresets, createStage, customPresets, defaultParams, deleteCustom, EASES, EFFECTS, FX, getPreset, GROUPS, mint,
   ORDER_LABEL, ORDERS, PRESET_GROUPS, sanitize, saveCustom, subscribe, type Clip, type EaseId, type FxRef, type Order, type Preset, type PresetGroup, type Stage
 } from '../engine';
 import { isDesktop, isMac, openText, saveText } from './desktop';
@@ -97,7 +97,6 @@ function FxEditor({ value, onChange, exitOnly }: { value: FxRef; onChange: (r: F
           <Seg value={value.p[q.key] ?? q.options[0]} options={q.options} onChange={v => onChange({ ...value, p: { ...value.p, [q.key]: v } })} />
         </div>
       ))}
-      <span style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--muted)' }}>{def.blurb}</span>
     </div>
   );
 }
@@ -120,11 +119,6 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
   }, [onClose]);
 
   const all = useMemo(() => allPresets(), [custom]);
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { All: all.length };
-    for (const p of all) c[p.group] = (c[p.group] || 0) + 1;
-    return c;
-  }, [all]);
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
     return all.filter(p => (group === 'All' || p.group === group) && (!q || `${p.name} ${p.id} ${FX[p.enter.fx]?.name} ${p.blurb || ''}`.toLowerCase().includes(q)));
@@ -163,50 +157,41 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
   const previewClip: Clip = on === 'graphic' && target ? { ...target, motion: draft } : specimenClip(draft);
 
   return (
-    <div role="dialog" aria-label="Motion library" style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', background: 'var(--app)' }}>
+    <div role="dialog" aria-label="Animations" style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', background: 'var(--app)' }}>
       <header data-tauri-drag-region className={'titlebar' + (isDesktop && isMac ? ' mac-inset' : '')} style={{ minHeight: 56, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16, padding: '0 20px', background: 'var(--header)', borderBottom: '1px solid var(--line)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ width: 22, height: 22, background: 'var(--hi)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 1H9V9H1Z" fill="none" stroke="#FFFFFF" strokeWidth="2" /></svg></span>
-          <span style={{ fontSize: 13, fontWeight: 700, fontStretch: '90%', letterSpacing: '.22em', textTransform: 'uppercase' }}>Motion library</span>
+          <span style={{ fontSize: 13, fontWeight: 700, fontStretch: '90%', letterSpacing: '.22em', textTransform: 'uppercase' }}>Animations</span>
         </div>
-        <span className="mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{counts.All} presets · {EFFECTS.length} effect families · {custom.length} custom</span>
         <span style={{ flex: 1 }} />
-        <div className="seg tight" role="group" aria-label="Card previews" title="Cards play on hover; Animate all plays every card">
-          <button className={'ease' + (!animateAll ? ' on' : '')} aria-pressed={!animateAll} onClick={() => toggleAll(false)}>Play on hover</button>
-          <button className={'ease' + (animateAll ? ' on' : '')} aria-pressed={animateAll} onClick={() => toggleAll(true)}>Animate all</button>
-        </div>
-        <input className="field-input" placeholder="Search presets…" value={query} onChange={e => setQuery(e.target.value)} style={{ width: 260, height: 32 }} aria-label="Search presets" />
-        <button className="btn-text" onClick={onClose}>Close · Esc</button>
+        <input className="field-input" placeholder="Search" value={query} onChange={e => setQuery(e.target.value)} style={{ width: 220, height: 30 }} aria-label="Search" />
+        <button className="toggle" aria-pressed={animateAll} onClick={() => toggleAll(!animateAll)}>
+          <span className="track"><span className="knob" style={{ left: animateAll ? 16 : 2, background: animateAll ? 'var(--hi)' : 'var(--knob-off)' }} /></span>Play all
+        </button>
+        <button className="btn-text" onClick={onClose}>Close</button>
       </header>
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         <aside style={{ width: 220, flex: 'none', overflowY: 'auto', background: 'var(--panel)', borderRight: '1px solid var(--line)', padding: '20px 0' }}>
-          <div className="caps" style={{ padding: '0 20px 12px' }}>Groups</div>
           {(['All', ...PRESET_GROUPS] as const).map(g => (
             <button key={g} className={'group-btn ease' + (group === g ? ' on' : '')} onClick={() => setGroup(g)}>
-              <span>{g}</span><span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{counts[g] || 0}</span>
+              <span>{g}</span>
             </button>
           ))}
-          <div style={{ padding: 20, fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>
-            Hover a card to see the animation from its first frame. Click to load it into the Lab, double-click to apply it.
-          </div>
         </aside>
 
         <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: 20, background: 'var(--canvas)' }}>
           {list.length === 0
-            ? <p style={{ margin: 0, fontSize: 14, color: 'var(--fg-3)' }}>{group === 'Custom' && !query ? 'No custom presets yet. Tune one in the Lab and save it, or mint a new one.' : 'Nothing matches that search.'}</p>
+            ? <p style={{ margin: 0, fontSize: 14, color: 'var(--fg-3)' }}>{group === 'Custom' && !query ? 'Nothing saved yet.' : 'No results.'}</p>
             : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 14 }}>
                 {list.map(p => (
                   <button key={p.id} className={'tile ease' + (p.id === draft.id ? ' on' : '')} onClick={() => load(p)}
                     onMouseEnter={() => setHover(p.id)} onMouseLeave={() => setHover(h => (h === p.id ? null : h))} onFocus={() => setHover(p.id)} onBlur={() => setHover(h => (h === p.id ? null : h))} onDoubleClick={() => { load(p); if (onApply) { onApply(p.id); onLog(`Applied ${p.name}`); } }}>
                     <Thumb preset={p.id} playing={animateAll || hover === p.id} />
-                    <span style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '9px 10px 10px' }}>
-                      <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
-                        <span style={{ fontSize: 13.5, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                        {p.id === current && <span className="caps" style={{ color: 'var(--hi-text)', flex: 'none' }}>On graphic</span>}
-                      </span>
-                      <span className="mono" style={{ fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{FX[p.enter.fx]?.name}{p.exit ? ` → ${FX[p.exit.fx]?.name}` : ''} · {p.ease}</span>
+                    <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '9px 10px 10px' }}>
+                      <span style={{ fontSize: 13.5, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                      {p.id === current && <span aria-label="In use" style={{ color: 'var(--hi-text)', flex: 'none' }}>●</span>}
                     </span>
                   </button>
                 ))}
@@ -216,59 +201,50 @@ export function MotionLibrary({ current, target, onApply, onClose, onLog }: Prop
 
         <aside style={{ width: 380, flex: 'none', overflowY: 'auto', background: 'var(--panel)', borderLeft: '1px solid var(--line)' }}>
           <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span className="caps">Motion lab</span>
-              <span className="mono" style={{ fontSize: 11.5, color: dirty ? 'var(--hi-text)' : 'var(--muted)' }}>{dirty ? 'unsaved' : draft.id}</span>
-            </div>
             <input aria-label="Preset name" value={draft.name} onChange={e => edit({ name: e.target.value })}
-              style={{ background: 'transparent', border: 0, borderBottom: '1px solid var(--line-strong)', padding: '0 0 6px', color: 'var(--fg)', fontFamily: "'Instrument Serif',serif", fontSize: 34, lineHeight: 1, outline: 'none' }} />
+              style={{ background: 'transparent', border: 0, borderBottom: '1px solid var(--line-strong)', padding: '0 0 6px', color: 'var(--fg)', fontFamily: "'Instrument Serif',serif", fontSize: 30, lineHeight: 1, outline: 'none' }} />
             <LabStage clip={previewClip} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <Label>Preview on</Label>
-              <Seg value={on} options={['specimen', 'graphic'] as const} onChange={v => setOn(v === 'graphic' && !target ? 'specimen' : v)} label={v => (v === 'graphic' ? (target ? 'Selected graphic' : 'No graphic selected') : 'Specimen')} />
+            {target && <Seg value={on} options={['specimen', 'graphic'] as const} onChange={setOn} label={v => (v === 'graphic' ? 'Your graphic' : 'Sample')} />}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-primary" style={{ flex: 1 }} disabled={!onApply} onClick={apply}>Use this</button>
+              <button className="btn" onClick={() => { load(mint(randomSeed())); setDirty(false); }}>Random</button>
             </div>
-            <span className="mono" style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--fg-3)' }}>{describe(draft)}</span>
           </section>
 
-          <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 18, borderTop: '1px solid var(--line)' }}>
+          <details className="style-sec" style={{ padding: '4px 20px 20px', borderTop: '1px solid var(--line)' }}>
+            <summary style={{ padding: '10px 0' }}><span className="caps">Customise</span></summary>
+          <section style={{ display: 'flex', flexDirection: 'column', gap: 18, paddingTop: 8 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <Label note={enterDef.group}>Enter</Label>
+              <Label>In</Label>
               <FxEditor value={draft.enter} onChange={r => edit({ enter: r, spread: undefined })} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <Label>Exit</Label>
-              <Seg value={draft.exit ? 'other' : 'own'} options={['own', 'other'] as const} label={v => (v === 'own' ? 'Own exit' : 'Different effect')}
+              <Label>Out</Label>
+              <Seg value={draft.exit ? 'other' : 'own'} options={['own', 'other'] as const} label={v => (v === 'own' ? 'Same' : 'Different')}
                 onChange={v => edit({ exit: v === 'own' ? undefined : draft.exit ?? { fx: 'wipe', p: { dir: 'right' } } })} />
               {draft.exit && <FxEditor exitOnly value={draft.exit} onChange={r => edit({ exit: r })} />}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <Label>Curve</Label>
+              <Label>Easing</Label>
               <Seg cols={3} value={draft.ease} options={Object.keys(EASES) as EaseId[]} label={v => EASES[v].label.replace('Quart ', '').replace('Stepped · ', 'Step ')} onChange={v => edit({ ease: v })} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <Label note={enterDef.staggered || ['Type'].includes(enterDef.group) ? null : 'no parts to stagger'}>Order</Label>
+              <Label>Order</Label>
               <Seg cols={3} value={draft.order} options={ORDERS} label={v => ORDER_LABEL[v as Order]} onChange={v => edit({ order: v })} />
             </div>
-            <Slider label="Stagger spread" value={draft.spread ?? enterDef.spread ?? 0.5} min={0} max={0.95} step={0.01} unit="" onChange={v => edit({ spread: v })} />
-            <Slider label="Cue gap" value={draft.gap} min={0.3} max={2.5} step={0.05} onChange={v => edit({ gap: v })} />
-            <Slider label="Pace" value={draft.pace} min={0.3} max={2.5} step={0.05} onChange={v => edit({ pace: v })} />
-            <Slider label="Exit length" value={draft.exitDur} min={0.12} max={1.2} step={0.01} unit="s" onChange={v => edit({ exitDur: v })} />
-            <Slider label="Exit stagger" value={draft.exitGap} min={0} max={0.2} step={0.01} unit="s" onChange={v => edit({ exitGap: v })} />
-          </section>
-
-          <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--line)' }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-primary" style={{ flex: 1 }} disabled={!onApply} onClick={apply}>Apply to graphic</button>
-              <button className="btn-accent" style={{ flex: 1 }} onClick={() => { load(mint(randomSeed())); setDirty(false); }}>Mint new</button>
-            </div>
+            <Slider label="Stagger" value={draft.spread ?? enterDef.spread ?? 0.5} min={0} max={0.95} step={0.01} unit="" onChange={v => edit({ spread: v })} />
+            <Slider label="Spacing" value={draft.gap} min={0.3} max={2.5} step={0.05} onChange={v => edit({ gap: v })} />
+            <Slider label="Length" value={draft.pace} min={0.3} max={2.5} step={0.05} onChange={v => edit({ pace: v })} />
+            <Slider label="Out length" value={draft.exitDur} min={0.12} max={1.2} step={0.01} unit="s" onChange={v => edit({ exitDur: v })} />
+            <Slider label="Out stagger" value={draft.exitGap} min={0} max={0.2} step={0.01} unit="s" onChange={v => edit({ exitGap: v })} />
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              <button className="btn" onClick={() => { const s = persist(); onLog(`Saved preset ${s.name}`); }}>{draft.custom ? 'Save' : 'Save as custom'}</button>
-              <button className="btn" onClick={exportJson}>Export</button>
-              <button className="btn" onClick={importJson}>Import</button>
-              {draft.custom && <button className="btn-danger" style={{ marginLeft: 'auto' }} onClick={() => { deleteCustom(draft.id); onLog(`Deleted ${draft.name}`); load(getPreset('sig-broadcast')); }}>Delete</button>}
+              <button className="btn btn-sm" onClick={() => { const s = persist(); onLog(`Saved preset ${s.name}`); }}>Save</button>
+              <button className="btn btn-sm" onClick={exportJson}>Export</button>
+              <button className="btn btn-sm" onClick={importJson}>Import</button>
+              {draft.custom && <button className="btn-text" style={{ marginLeft: 'auto', color: 'var(--danger)' }} onClick={() => { deleteCustom(draft.id); onLog(`Deleted ${draft.name}`); load(getPreset('sig-broadcast')); }}>Delete</button>}
             </div>
-            <span style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--muted)' }}>Mint new rolls a fresh recipe from the whole effect space: family, parameters, exit, curve, order and pacing. Every seed is a different animation.</span>
           </section>
+          </details>
         </aside>
       </div>
     </div>

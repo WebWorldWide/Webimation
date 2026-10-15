@@ -65,25 +65,25 @@ export function StylePanel({ props: P, set, setMany }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <Section title="Type" note={pairing.name}>
-        <Row label="Pairing">
+      <Section title="Text">
+        <Row label="Fonts">
           <select className="field-input" value={pairing.id} onChange={e => set('type', e.target.value)}>
             {PAIRINGS.map(p => <option key={p.id} value={p.id}>{p.name} — {FONT[p.roles.disp.font].name} / {FONT[p.roles.text.font].name}</option>)}
           </select>
         </Row>
         <div className="seg">{ROLES.map(([id, label]) => <button key={id} className={'ease' + (role === id ? ' on' : '')} onClick={() => setRole(id)}>{label}</button>)}</div>
-        <Row label="Font" value={roleTouched ? <button className="btn-text" style={{ height: 'auto', padding: 0 }} onClick={resetRole}>Reset</button> : 'from pairing'}>
+        <Row label="Font" value={roleTouched ? <button className="btn-text" style={{ height: 'auto', padding: 0 }} onClick={resetRole}>Reset</button> : undefined}>
           <select className="field-input" value={r('Font') || ''} onChange={e => set(role + 'Font', e.target.value)} style={{ fontFamily: font.family }}>
-            <option value="">Pairing default · {FONT[base.font].name}</option>
+            <option value="">{FONT[base.font].name}</option>
             {Object.entries(KIND_LABEL).map(([kind, label]) => (
               <optgroup key={kind} label={label}>{FONTS.filter(f => f.kind === kind).map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</optgroup>
             ))}
           </select>
         </Row>
-        <Row label="Weight" value={font.wght[0] === font.wght[1] ? 'single weight' : w}>
+        <Row label="Weight" value={font.wght[0] === font.wght[1] ? '' : w}>
           <Slider value={w} min={font.wght[0]} max={font.wght[1]} step={10} disabled={font.wght[0] === font.wght[1]} onChange={v => set(role + 'W', String(v))} />
         </Row>
-        <Row label="Width" value={font.wdth[0] === font.wdth[1] ? 'fixed' : s + '%'}>
+        <Row label="Width" value={font.wdth[0] === font.wdth[1] ? '' : s + '%'}>
           <Slider value={s} min={font.wdth[0]} max={font.wdth[1]} step={1} disabled={font.wdth[0] === font.wdth[1]} onChange={v => set(role + 'S', String(v))} />
         </Row>
         <Row label="Tracking" value={num('Ls', base.ls).toFixed(3) + ' em'}>
@@ -99,7 +99,7 @@ export function StylePanel({ props: P, set, setMany }: Props) {
         )}
       </Section>
 
-      <Section title="Colour" note={P.field ? FIELDS.find(f => f.id === P.field)?.name : undefined}>
+      <Section title="Colour">
         <Row label="Accent" value={accentHex(P.accent)}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 9, paddingLeft: 2 }}>
             {Object.entries(ACC).map(([id, hex]) => <Swatch key={id} color={hex} label={id} on={P.accent === id} onClick={() => set('accent', id)} />)}
@@ -131,7 +131,7 @@ export function StylePanel({ props: P, set, setMany }: Props) {
         </Row>
       </Section>
 
-      <Section title="Placement" note={placed ? (P.place ? P.place.toUpperCase() : 'nudged') : 'template'}>
+      <Section title="Position">
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
           <div role="group" aria-label="Anchor" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,26px)', gap: 3, padding: 4, boxShadow: 'inset 0 0 0 1px var(--line-strong)', background: 'var(--sunk)' }}>
             {ANCHORS.map(a => (
@@ -140,8 +140,7 @@ export function StylePanel({ props: P, set, setMany }: Props) {
             ))}
           </div>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <span style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--muted)' }}>Snap the graphic to a corner, edge or centre of the title-safe area, or drag it on the stage.</span>
-            {placed && <button className="btn btn-sm ease" style={{ alignSelf: 'flex-start' }} onClick={() => setMany({ place: undefined, size: undefined, nx: undefined, ny: undefined })}>Back to template layout</button>}
+            {placed && <button className="btn btn-sm ease" style={{ alignSelf: 'flex-start' }} onClick={() => setMany({ place: undefined, size: undefined, nx: undefined, ny: undefined })}>Reset</button>}
           </div>
         </div>
         <Row label="Size" value={'×' + (parseFloat(P.size) || 1).toFixed(2)}>

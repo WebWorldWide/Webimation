@@ -5,7 +5,7 @@ export function ThemeSwitch() {
   return (
     <div className="seg tight" role="group" aria-label="Theme">
       {(['light', 'dark'] as Theme[]).map(t => (
-        <button key={t} className={'ease' + (theme === t ? ' on' : '')} aria-pressed={theme === t} onClick={() => setTheme(t)}>{t}</button>
+        <button key={t} className={'ease' + (theme === t ? ' on' : '')} aria-pressed={theme === t} onClick={() => setTheme(t)}>{t === "light" ? "Light" : "Dark"}</button>
       ))}
     </div>
   );

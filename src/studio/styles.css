@@ -119,3 +119,21 @@ select.field-input { appearance: none; background-image: linear-gradient(45deg, 
 
 /* Scrolling columns: children keep their natural height (the stage is aspect-ratio sized). */
 .col > * { flex-shrink: 0; }
+
+/* Tabs: quiet underline style */
+.tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); }
+.tabs > button { height: 34px; padding: 0; margin-bottom: -1px; background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--label); cursor: pointer; font-size: 13px; font-weight: 500; }
+.tabs > button:hover { color: var(--fg); }
+.tabs > button.on { color: var(--fg); border-bottom-color: var(--hi); }
+
+/* Calm controls: sentence case everywhere; caps are kept only for the few section labels (.caps). */
+.btn, .btn-sm, .btn-primary, .btn-accent, .btn-danger, .btn-text, .seg > button, .toggle {
+  text-transform: none; letter-spacing: 0; font-stretch: 100%; font-weight: 500; font-size: 13px;
+}
+.btn-sm, .seg.tight > button, .seg.grid > button { font-size: 12.5px; }
+.btn-primary { font-weight: 600; }
+
+/* Add list (left column): one plain line per item */
+.add-row { display: block; width: 100%; padding: 8px 20px; background: transparent; border: 0; color: var(--fg-2); text-align: left; cursor: pointer; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.add-row:hover { background: var(--wash-2); color: var(--fg); }
+.add-row:active { background: var(--wash-4); }

@@ -42,8 +42,8 @@ export function CastPanel({ props, set, fit, time }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <span className="caps">Cast</span>
-          <button className="btn-text" style={{ height: 'auto', padding: 0 }} onClick={() => fit(+(castLength(cast) + 0.3).toFixed(1))}>Fit clip to script · {castLength(cast).toFixed(1)} s</button>
+          <span style={{ fontSize: 12.5, color: 'var(--label)' }}>Characters</span>
+          <button className="btn-text" style={{ height: 'auto', padding: 0 }} onClick={() => fit(+(castLength(cast) + 0.3).toFixed(1))}>Fit length</button>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {cast.figures.map((f, i) => <button key={f.id} className={'btn btn-sm ease'} style={i === fi ? { background: 'var(--primary)', color: 'var(--primary-fg)', borderColor: 'var(--primary)' } : undefined} onClick={() => { setFi(i); setOpen(null); }}>{f.name}</button>)}
@@ -81,10 +81,9 @@ export function CastPanel({ props, set, fit, time }: Props) {
                       <select className="field-input" value={s.do} onChange={e => { const a = ACTION[e.target.value]; setStep(i, { do: a.id, dur: a.dur, dx: a.dx, pose: a.id === 'pose' ? s.pose ?? { ...STAND } : undefined }); }}>
                         {GROUPS.map(g => <optgroup key={g} label={g}>{ACTIONS.filter(a => a.group === g).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>)}
                       </select>
-                      <span style={{ fontSize: 12, lineHeight: 1.4, color: 'var(--muted)' }}>{A.blurb}</span>
                       <Num label="Duration" value={s.dur} min={0.2} max={8} step={0.1} unit=" s" onChange={v => setStep(i, { dur: v })} />
                       {A.dx !== undefined && <Num label="Distance" value={s.dx ?? 0} min={-1200} max={1200} step={10} unit=" px" onChange={v => setStep(i, { dx: v })} />}
-                      <input className="field-input" placeholder="Says… (optional speech bubble)" value={s.say ?? ''} onChange={e => setStep(i, { say: e.target.value || undefined })} />
+                      <input className="field-input" placeholder="Says…" value={s.say ?? ''} onChange={e => setStep(i, { say: e.target.value || undefined })} />
                       <div className="seg tight">
                         {([['', 'Keep facing'], ['left', 'Turn ←'], ['right', 'Turn →']] as const).map(([v, l]) => <button key={v} className={'ease' + ((s.face ?? '') === v ? ' on' : '')} onClick={() => setStep(i, { face: (v || undefined) as Step['face'] })}>{l}</button>)}
                       </div>
@@ -119,7 +118,7 @@ export function CastPanel({ props, set, fit, time }: Props) {
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-        <span className="caps">Drawing</span>
+        <span style={{ fontSize: 12.5, color: 'var(--label)' }}>Look</span>
         <div className="seg">{([['round', 'Classic'], ['solid', 'Solid head'], ['block', 'Block']] as const).map(([v, l]) => <button key={v} className={'ease' + (cast.style === v ? ' on' : '')} onClick={() => save({ ...cast, style: v })}>{l}</button>)}</div>
         <Num label="Line weight" value={cast.weight} min={2} max={28} step={1} unit=" px" onChange={v => save({ ...cast, weight: v })} />
         <Num label="Ground" value={cast.ground} min={200} max={720} step={1} unit=" px" onChange={v => save({ ...cast, ground: v })} />

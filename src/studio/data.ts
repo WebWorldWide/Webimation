@@ -10,11 +10,6 @@ export const FMT = {
 } as const;
 export type FmtId = keyof typeof FMT;
 
-export const REVEAL_NOTE: Record<string, string> = {
-  wipe: 'Hard-edged wipe from the left, quart-out over 0.3–0.8 s.',
-  mask: 'Each line rises inside its own mask, then exits upward.',
-  cut: 'Frame cuts. Elements appear on their cue with no transition.'
-};
 
 export const INIT: Clip[] = [
   { id: 'c1', tpl: 'lt', start: 1, dur: 5, props: { name: 'Adam Nolle', role: 'Host · Web World Wide', accent: 'orange', field: 'clear', reveal: 'wipe' } },

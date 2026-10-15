@@ -44,7 +44,7 @@ export async function pickDestination(s: ExportSettings, name: string, many: boo
 export const inFolder = (dir: string, s: ExportSettings, name: string) => join(dir, FORMATS[s.format].video ? `${slug(name)}.${FORMATS[s.format].ext}` : slug(name));
 
 /** Render one clip and write it. `dest` is a file (video), a folder (PNG), or 'download' (browser). */
-export async function exportClip(clip: Clip, s: ExportSettings, dest: string, name: string, onProgress: (p: number) => void, signal?: AbortSignal): Promise<string> {
+export async function exportClip(clip: Clip | Clip[], s: ExportSettings, dest: string, name: string, onProgress: (p: number) => void, signal?: AbortSignal): Promise<string> {
   const [width, height] = SIZES[s.size], F = FORMATS[s.format];
   const opts = { width, height, fps: s.fps, transparent: s.transparent && F.alpha };
   if (!isDesktop) {

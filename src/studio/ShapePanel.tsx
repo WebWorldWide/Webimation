@@ -9,11 +9,10 @@ export function ShapePanel({ props: P, set, setMany }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <span className="caps">Shape</span>
+        <span style={{ fontSize: 12.5, color: 'var(--label)' }}>Shape</span>
         <select className="field-input" value={def.id} onChange={e => pick(e.target.value)}>
           {SHAPE_GROUPS.map(g => <optgroup key={g} label={g}>{SHAPES.filter(s => s.group === g).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>)}
         </select>
-        <span style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--muted)' }}>{def.blurb}</span>
       </label>
       {(def.options || []).map(o => (
         <div key={o.key} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -34,15 +33,14 @@ export function ShapePanel({ props: P, set, setMany }: Props) {
       ))}
       {!full && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          {([['sx', 'Centre X', 640], ['sy', 'Centre Y', 360]] as const).map(([k, label, d]) => (
+          {([['sx', 'X', 640], ['sy', 'Y', 360]] as const).map(([k, label, d]) => (
             <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <span style={{ fontSize: 11.5, color: 'var(--label)' }}>{label} · px</span>
+              <span style={{ fontSize: 11.5, color: 'var(--label)' }}>{label}</span>
               <input className="field-input" type="number" step={1} value={P[k] || String(d)} onChange={e => set(k, String(Math.round(+e.target.value || 0)))} />
             </label>
           ))}
         </div>
       )}
-      <span style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--muted)' }}>Drag on the stage to move it. Shift-drag to move it in straight lines.</span>
     </div>
   );
 }

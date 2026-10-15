@@ -122,36 +122,71 @@ export function build(layer: HTMLElement, clip: Clip | null, transparent = false
 
 const GUIDES = '<div style="position:absolute;left:5%;top:5%;right:5%;bottom:5%;box-shadow:inset 0 0 0 1px rgba(255,255,255,.28)"></div><div style="position:absolute;left:10%;top:10%;right:10%;bottom:10%;box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)"></div><div style="position:absolute;left:628px;top:359px;width:24px;height:2px;background:rgba(255,255,255,.4)"></div><div style="position:absolute;left:639px;top:348px;width:2px;height:24px;background:rgba(255,255,255,.4)"></div>';
 
+/** One graphic in a stack, with its own local time. Items are drawn bottom → top. */
+export interface StackItem { clip: Clip; t: number }
+
 export interface Stage {
+  /** Draw one graphic (or the empty A-roll card when `clip` is null). */
   show(clip: Clip | null, localTime: number, o?: { guides?: boolean; transparent?: boolean }): void;
+  /**
+   * Draw several graphics stacked in the same frame, bottom → top. Only the bottom graphic paints its
+   * background field; everything above it renders transparently, so layers overlay cleanly.
+   */
+  showStack(items: StackItem[], o?: { guides?: boolean; transparent?: boolean }): void;
   destroy(): void;
 }
+
+interface Layer { el: HTMLElement; key: string | null; upd: ((t: number) => void) | null }
 
 export function createStage(host: HTMLElement): Stage {
   host.innerHTML = '';
   const inner = document.createElement('div');
   inner.dataset.stageRoot = '';
   inner.style.cssText = `position:absolute;left:0;top:0;width:${STAGE_W}px;height:${STAGE_H}px;transform-origin:0 0;overflow:hidden;color:#fff;font-family:'Archivo Variable',Archivo,system-ui,sans-serif;font-variant-ligatures:none;font-kerning:normal;text-rendering:geometricPrecision;-webkit-font-smoothing:antialiased`;
-  const layer = document.createElement('div'), guides = document.createElement('div');
+  const stack = document.createElement('div'), guides = document.createElement('div');
+  stack.style.cssText = 'position:absolute;inset:0';
   guides.style.cssText = 'position:absolute;inset:0;pointer-events:none';
   guides.innerHTML = GUIDES;
-  inner.append(layer, guides);
+  inner.append(stack, guides);
   host.append(inner);
   const fit = () => { inner.style.transform = `scale(${host.clientWidth / STAGE_W})`; };
   const ro = new ResizeObserver(fit);
   ro.observe(host);
   fit();
-  let key: string | null = null, upd: ((t: number) => void) | null = null;
+  // One layer per graphic id, reused across frames so a graphic is only rebuilt when it changes.
+  const layers = new Map<string, Layer>();
+  const layerFor = (id: string) => {
+    let L = layers.get(id);
+    if (!L) { L = { el: document.createElement('div'), key: null, upd: null }; layers.set(id, L); }
+    return L;
+  };
   // Text is measured at build time (kerning, splits, tile grids), so rebuild whenever a webfont lands.
-  const refont = () => { key = null; };
+  const refont = () => { for (const L of layers.values()) L.key = null; };
   document.fonts?.addEventListener('loadingdone', refont);
+  const showStack: Stage['showStack'] = (items, o = {}) => {
+    // 1. Attach this frame's layers in stack order first: building measures layout, so a layer must be
+    //    in the document before it's built. Layers not in this frame are dropped (rebuilt if they return).
+    const ids = items.length ? items.map(it => it.clip.id) : ['-'];
+    const els = ids.map(id => layerFor(id).el);
+    els.forEach((el, i) => { if (stack.children[i] !== el) stack.insertBefore(el, stack.children[i] ?? null); });
+    while (stack.children.length > els.length) stack.lastElementChild!.remove();
+    for (const [id, L] of layers) if (!L.el.isConnected) layers.delete(id);
+    // 2. Build what changed, then draw each layer at its own local time.
+    if (!items.length) {
+      const L = layerFor('-'), k = o.transparent ? 'T|-' : '-';
+      if (L.key !== k) { L.key = k; L.upd = build(L.el, null, !!o.transparent); }
+    }
+    items.forEach(({ clip, t }, i) => {
+      const L = layerFor(clip.id), clear = !!o.transparent || i > 0;
+      const k = (clear ? 'T|' : '') + clip.id + '|' + clip.tpl + '|' + clip.dur + '|' + clip.start + '|' + JSON.stringify(clip.props) + (clip.motion ? JSON.stringify(clip.motion) : '');
+      if (k !== L.key) { L.key = k; L.upd = build(L.el, clip, clear); }
+      if (L.upd) L.upd(t);
+    });
+    guides.style.display = o.guides ? '' : 'none';
+  };
   return {
-    show(clip, lt, o = {}) {
-      const k = (o.transparent ? 'T|' : '') + (clip ? clip.id + '|' + clip.tpl + '|' + clip.dur + '|' + clip.start + '|' + JSON.stringify(clip.props) + (clip.motion ? JSON.stringify(clip.motion) : '') : '-');
-      if (k !== key) { key = k; upd = build(layer, clip, !!o.transparent); }
-      guides.style.display = o.guides ? '' : 'none';
-      if (upd) upd(lt);
-    },
+    show(clip, lt, o = {}) { showStack(clip ? [{ clip, t: lt }] : [], o); },
+    showStack,
     destroy() { ro.disconnect(); document.fonts?.removeEventListener('loadingdone', refont); host.innerHTML = ''; }
   };
 }

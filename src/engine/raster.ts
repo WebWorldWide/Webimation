@@ -29,9 +29,9 @@ const toDataUrl = async (url: string) => {
 const families = (stack: string) => stack.split(',').map(f => f.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
 
 /** @font-face rules for the families a clip uses (Latin subsets), with sources inlined. */
-async function embeddedFonts(clip: Clip): Promise<string> {
-  const vars = typeVars(clip.props), want = new Set<string>(['Archivo Variable', 'Instrument Serif']);
-  for (const [k, v] of Object.entries(vars)) if (k.endsWith('-f')) families(v).forEach(f => want.add(f));
+async function embeddedFonts(clips: Clip[]): Promise<string> {
+  const want = new Set<string>(['Archivo Variable', 'Instrument Serif']);
+  for (const clip of clips) for (const [k, v] of Object.entries(typeVars(clip.props))) if (k.endsWith('-f')) families(v).forEach(f => want.add(f));
   const rules: string[] = [];
   for (const sheet of [...document.styleSheets]) {
     let list: CSSRuleList;
@@ -53,10 +53,13 @@ async function embeddedFonts(clip: Clip): Promise<string> {
 const decode = (img: HTMLImageElement, src: string) => new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('frame failed to rasterise')); img.src = src; });
 
 /**
- * Render every frame of `clip`. Calls `onFrame` with the canvas for each frame in order; await it
+ * Render every frame of a graphic, or of a stack of graphics. A single clip renders over its own
+ * length (local time). An array renders as a stack on the shared timeline: by default from the
+ * earliest start to the latest end, each clip drawn while it's on screen, lower `track` first.
+ * Calls `onFrame` with the canvas for each frame in order; await it
  * to apply back-pressure (e.g. while the PNG is being written).
  */
-export async function rasterize(clip: Clip, o: RasterOpts, onFrame: (canvas: HTMLCanvasElement, i: number, n: number) => Promise<void> | void, signal?: AbortSignal) {
+export async function rasterize(input: Clip | Clip[], o: RasterOpts, onFrame: (canvas: HTMLCanvasElement, i: number, n: number) => Promise<void> | void, signal?: AbortSignal) {
   const host = document.createElement('div');
   host.style.cssText = `position:fixed;left:-${STAGE_W * 4}px;top:0;width:${STAGE_W}px;height:${STAGE_H}px;pointer-events:none`;
   document.body.append(host);
@@ -67,12 +70,17 @@ export async function rasterize(clip: Clip, o: RasterOpts, onFrame: (canvas: HTM
   const img = new Image();
   try {
     await document.fonts.ready;
-    const fonts = await embeddedFonts(clip);
-    const from = o.from ?? 0, to = o.to ?? clip.dur, n = Math.max(1, Math.round((to - from) * o.fps));
+    // A lone clip is a one-item stack starting at 0, so `from`/`to` stay in its local time.
+    const clips = Array.isArray(input) ? input : [{ ...input, start: 0 }];
+    const order = [...clips].sort((a, b) => (a.track ?? 0) - (b.track ?? 0) || a.start - b.start);
+    const fonts = await embeddedFonts(clips);
+    const from = o.from ?? Math.min(...clips.map(c => c.start)), to = o.to ?? Math.max(...clips.map(c => c.start + c.dur));
+    const n = Math.max(1, Math.round((to - from) * o.fps));
     const root = host.firstElementChild as HTMLElement;
     for (let i = 0; i < n; i++) {
       if (signal?.aborted) throw new DOMException('Export cancelled', 'AbortError');
-      stage.show(clip, from + i / o.fps, { transparent: o.transparent });
+      const gt = from + i / o.fps;
+      stage.showStack(order.filter(c => gt >= c.start && gt < c.start + c.dur).map(c => ({ clip: c, t: gt - c.start })), { transparent: o.transparent });
       const xhtml = new XMLSerializer().serializeToString(root);
       // Scale with CSS inside the foreignObject, not with the SVG viewBox: WebKit ignores viewBox
       // scaling for foreignObject content, which would leave 1080p/4K frames only partly filled.
