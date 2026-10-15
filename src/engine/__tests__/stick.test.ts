@@ -9,7 +9,7 @@ describe('stick figures', () => {
   it('nothing ever goes through the floor, for every action after every action', () => {
     let worst = 0;
     for (const a of ACTIONS) for (const b of ACTIONS) for (const face of ['right', 'left'] as const) {
-      const F = fig([{ do: b.id, dur: b.dur, dx: b.dx }, { do: a.id, dur: a.dur, dx: a.dx }]), T = b.dur + a.dur;
+      const F = fig([{ do: b.id, dur: b.dur, dx: b.dx }, { do: a.id, dur: a.dur, dx: a.dx }], face), T = b.dur + a.dur;
       for (let i = 0; i <= T * 30; i++) worst = Math.max(worst, lowest(figureAt(F, i / 30, G, W).j) - G);
     }
     expect(worst).toBeLessThan(1e-6);
@@ -17,7 +17,7 @@ describe('stick figures', () => {
 
   it('planted feet never slide during gaits', () => {
     for (const id of ['walk', 'run', 'sneak']) for (const face of ['right', 'left'] as const) for (const dx of [180, 333, 700, -240]) {
-      const F = fig([{ do: id, dur: 2, dx }]);
+      const F = fig([{ do: id, dur: 2, dx }], face);
       // Compare consecutive 30 fps frames after the blend-in window.
       let prev = figureAt(F, 18 / 30, G, W).j;
       for (let i = 19; i < 60; i++) {

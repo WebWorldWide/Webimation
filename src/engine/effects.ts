@@ -173,6 +173,17 @@ const unitBand = (d: Dir, a: number, b: number) => {
   }
 };
 
+/** Compare a computed rgb() colour with a #hex. */
+const sameColor = (rgb: string, hex: string) => {
+  const m = /(\d+),\s*(\d+),\s*(\d+)/.exec(rgb), h = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!h) return rgb.replace(/\s/g, '').toLowerCase() === hex.replace(/\s/g, '').toLowerCase();
+  if (!m) return false;
+  const n = parseInt(h[1], 16);
+  return +m[1] === n >> 16 && +m[2] === ((n >> 8) & 255) && +m[3] === (n & 255);
+};
+/** Rightward band in percent of a unit's own box (for marker / underline decorations). */
+const band_ = (a: number, b: number) => band('right', a, b);
+
 // ── text plumbing ──────────────────────────────────────────────────────────
 
 interface TextBase {
@@ -835,6 +846,91 @@ const defs: EffectDef[] = [
           }
         }
       };
+    }
+  },
+
+  {
+    id: 'marker', name: 'Marker', group: 'Type', staggered: true, spread: 0.6, orders: ['seq', 'random'],
+    blurb: 'A highlighter band sweeps behind each word as it lands; the exit lifts it off the other way.',
+    params: [{ key: 'color', label: 'Ink', options: ['accent', 'white', 'ink'] }, { key: 'height', label: 'Band', options: ['full', 'low'] }],
+    variant: p => `${p.color}${p.height === 'low' ? ' · low' : ''}`,
+    make(tg, p, cx) {
+      const col = colorOf(tg, p.color), low = p.height === 'low';
+      return perUnit(tg, 'word', cx, u => {
+        u.mask.style.position = 'relative';
+        u.mask.style.isolation = 'isolate';
+        const band = document.createElement('span');
+        // Never paint the band in the word's own colour (accent words on an accent marker would vanish).
+        const same = sameColor(getComputedStyle(u.el).color, col), bg = same ? (sameColor(col, '#FFFFFF') ? INK : '#FFFFFF') : col;
+        band.style.cssText = `position:absolute;left:-.08em;right:-.08em;top:${low ? '.55em' : '.08em'};bottom:-.02em;background:${bg};z-index:-1;clip-path:${EMPTY}`;
+        u.mask.prepend(band);
+        const setB = clipper(band), vis = writer(u.el, 'visibility');
+        return (a, b) => {
+          vis(a > 0 && b < 1 ? 'visible' : 'hidden');
+          setB(a >= 1 && b <= 0 ? FULL : poly([band_(cx.ein(cl(a * 1.25)), cx.eout(b))]));
+        };
+      });
+    }
+  },
+  {
+    id: 'underline', name: 'Underline', group: 'Type', staggered: true, spread: 0.55, orders: ['seq', 'rev'],
+    blurb: 'Words cut on and a hard rule wipes under each one.',
+    params: [{ key: 'color', label: 'Rule', options: ['accent', 'white'] }, { key: 'weight', label: 'Weight', options: [0.08, 0.04, 0.14] }],
+    variant: p => `${p.color} · ${p.weight}em`,
+    make(tg, p, cx) {
+      const col = colorOf(tg, p.color), w = +p.weight;
+      return perUnit(tg, 'word', cx, u => {
+        u.mask.style.position = 'relative';
+        const rule = document.createElement('span');
+        rule.style.cssText = `position:absolute;left:0;right:0;bottom:${(-0.02 - w).toFixed(3)}em;height:${w}em;background:${col};clip-path:${EMPTY}`;
+        u.mask.append(rule);
+        const setR = clipper(rule), vis = writer(u.el, 'visibility');
+        return (a, b) => {
+          vis(a > 0 && b < 0.6 ? 'visible' : 'hidden');
+          setR(a <= 0 ? EMPTY : poly([band_(cx.ein(cl((a - 0.15) / 0.85)), cx.eout(b))]));
+        };
+      });
+    }
+  },
+  {
+    id: 'slam', name: 'Slam', group: 'Type', staggered: true, spread: 0.6, orders: ['seq', 'random'],
+    blurb: 'Each word cuts on oversized and snaps to size over three frames. No overshoot.',
+    params: [{ key: 'from', label: 'From', options: [1.6, 1.3, 2.2] }],
+    variant: p => `${Math.round(+p.from * 100)}%`,
+    make(tg, p, cx) {
+      const k0 = +p.from, sc = [k0, 1 + (k0 - 1) * 0.42, 1 + (k0 - 1) * 0.12, 1], s = cx.spread;
+      return perUnit(tg, 'word', cx, u => {
+        u.el.style.transformOrigin = '50% 60%';
+        // Scaling past the unit's clip would crop the slam, so the clip opens while scaled.
+        const set = translate(u.el), vis = writer(u.el, 'visibility'), clip = clipper(u.mask);
+        return (a, b) => {
+          const ta = a * (1 - s) * cx.dur, f = Math.min(3, Math.floor(ta * 30));
+          vis(a > 0 && b < 0.5 ? 'visible' : 'hidden');
+          const v = a >= 1 && b <= 0 ? 1 : sc[f];
+          set(v === 1 ? 'none' : `scale(${v})`);
+          clip(v === 1 ? UCLIP : 'none');
+        };
+      });
+    }
+  },
+  {
+    id: 'shred', name: 'Shred', group: 'Type', staggered: true, spread: 0.5, orders: ['seq', 'center', 'random'],
+    blurb: 'Glyphs wipe on in alternating directions, like paper strips.',
+    params: [{ key: 'axis', label: 'Strips', options: ['v', 'h'] }],
+    variant: p => (p.axis === 'v' ? '↕' : '↔'),
+    make(tg, p, cx) {
+      return perUnit(tg, 'char', cx, (u, i) => {
+        const d: Dir = p.axis === 'v' ? (i % 2 ? 'up' : 'down') : i % 2 ? 'left' : 'right', set = clipper(u.mask);
+        return (a, b) => set(a >= 1 && b <= 0 ? UCLIP : a <= 0 || b >= 1 ? EMPTY : unitBand(d, cx.ein(a), cx.eout(b)));
+      });
+    }
+  },
+  {
+    id: 'wordcut', name: 'Word cut', group: 'Type', staggered: true, spread: 0.9, orders: ['seq', 'random', 'rev'],
+    blurb: 'Whole words cut on one frame at a time, then cut away.',
+    params: [],
+    make(tg, _p, cx) {
+      return perUnit(tg, 'word', cx, u => { const set = writer(u.el, 'visibility'); return (a, b) => set(a > 0 && b <= 0 ? 'visible' : 'hidden'); });
     }
   },
 
