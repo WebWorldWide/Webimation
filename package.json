@@ -13,7 +13,8 @@
     "app": "tauri dev",
     "app:build": "tauri build",
     "icons": "scripts/build-icons.sh",
-    "audit:precision": "node scripts/audit-precision.mjs && DPR=2 node scripts/audit-precision.mjs"
+    "audit:precision": "node scripts/audit-precision.mjs && DPR=2 node scripts/audit-precision.mjs",
+    "qa:sheet": "node scripts/render-qa.mjs"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "^5.3.0",
