@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { EFFECTS, LIBRARY, build, TEMPLATES, type Clip } from '..';
 
 // Robustness matrix: every template x one preset per effect family.
@@ -59,9 +59,13 @@ function canonical(html: string): string {
       const name = s.item(i), pri = s.getPropertyPriority(name);
       decls.push(`${name}:${s.getPropertyValue(name)}${pri ? ` !${pri}` : ''}`);
     }
-    el.setAttribute('style', decls.sort().join(';'));
+    // An empty style attribute (left behind after a property is set, then cleared) is the same as none.
+    if (decls.length) el.setAttribute('style', decls.sort().join(';'));
+    else el.removeAttribute('style');
   }
-  return root.innerHTML;
+  // Shape SVG ids come from a global counter so concurrent stages never share a url(#id) target;
+  // two builds of one clip therefore differ in the number only.
+  return root.innerHTML.replace(/shp\d+/g, 'shp#');
 }
 
 /** Equal markup: identical raw innerHTML, or identical once style serialization is normalized. */
@@ -172,20 +176,12 @@ function summarize(name: string, bad: Map<string, string>): string {
 const assertClean = (name: string, bad: Map<string, string>) =>
   expect([...bad.keys()], summarize(name, bad)).toEqual([]);
 
-afterAll(() => {
-  // it.fails hides its assertion message; log the known-failure summaries so they appear in the run output.
-  console.warn(summarize('KNOWN scrub-order failures', failures.scrubOrder));
-  console.warn(summarize('KNOWN rest-frame failures', failures.restFrame));
-});
-
 describe('engine robustness', () => {
   it('is deterministic: calling upd(t) twice for the same t yields identical markup', () => {
     assertClean('determinism', failures.determinism);
   });
 
-  // Known failure: markup at a given t depends on the scrub history that preceded it. Kept as a
-  // strict assertion; it.fails keeps the suite green and flips to a failure once this is fixed.
-  it.fails('KNOWN FAILURE: scrub-order independent, forward and reverse scrubbing agree at every sample time', () => {
+  it('is scrub-order independent: forward and reverse scrubbing agree at every sample time', () => {
     assertClean('scrub-order', failures.scrubOrder);
   });
 
@@ -193,8 +189,7 @@ describe('engine robustness', () => {
     assertClean('non-finite output', failures.garbage);
   });
 
-  // Known failure: the rest frame after a full scrub differs from a fresh build at the same t.
-  it.fails('KNOWN FAILURE: rest frame is stable, dur-0.5 identical from a fresh build and after scrubbing the whole clip', () => {
+  it('has a stable rest frame: dur-0.5 is identical from a fresh build and after scrubbing the whole clip', () => {
     assertClean('rest-frame', failures.restFrame);
   });
 });

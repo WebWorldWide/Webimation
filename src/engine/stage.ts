@@ -40,7 +40,8 @@ function reveal(wrap: HTMLElement, i: number, n: number, s: number, d: number, d
     const k = prog(t, s2, d2), x = prog(t, xs, pr.exitDur), o = k <= 0 || x >= 1 - 1e-6;
     if (o !== off) { off = o; wrap.style.opacity = o ? '0' : ''; }
     if (!enter) ready();
-    if (o) return;
+    // Off-screen frames still render (at k = 0, or fully exited), so the element's state is a pure
+    // function of t and never carries residue from whichever frame was drawn before.
     if (!exit) enter!(k, x);
     else if (x > 0) { enter!(1, 0); exit(1, x); }
     else { exit(1, 0); enter!(k, 0); }

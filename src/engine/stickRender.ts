@@ -52,7 +52,13 @@ export function stickUpdate(layer: HTMLElement, clip: { props: Record<string, st
         F.bubble.style.display = '';
         F.bubble.style.transform = `translate(${Math.round(j.head[0] - 10)}px,${Math.round(j.head[1] - j.headR - 34)}px) translateY(-100%)`;
         F.bubble.style.clipPath = sayK >= 1 ? '' : `inset(0 ${((1 - sayK) * 100).toFixed(2)}% 0 0)`;
-      } else F.bubble.style.display = 'none';
+      } else if (F.bubble.style.display !== 'none' || F.said) {
+        // Hidden means back to the built state, so the markup never depends on the frames drawn before.
+        F.bubble.style.display = 'none';
+        F.bubble.style.transform = '';
+        F.bubble.style.clipPath = '';
+        if (F.said) { F.said = ''; F.text.textContent = ''; }
+      }
     }
   };
 }
