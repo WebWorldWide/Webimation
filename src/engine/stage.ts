@@ -1,6 +1,7 @@
 // Webimation stage renderer. Every graphic is a pure function of local time, so it scrubs, loops and
 // renders frame-exact. Reveal timing comes from the template's cues; the motion comes from a preset.
 import { E, easeFn, exitFn, prog } from './easing';
+import { hasKeyframes, parseKeyframes, poseAt, poseCss } from './keyframes';
 import { FX, type FxCtx, type Render } from './effects';
 import { getPreset, type FxRef, type Preset } from './presets';
 import { hash } from './rand';
@@ -86,7 +87,14 @@ export function build(layer: HTMLElement, clip: Clip | null, transparent = false
   const content = document.createElement('div');
   content.style.cssText = 'position:absolute;inset:0';
   content.innerHTML = roleMetrics(T.html(P, a, clip, ai));
-  layer.replaceChildren(content);
+  // Keyframes move the whole graphic through a wrapper that exists only when a clip has them, so a clip
+  // without keyframes keeps exactly the markup (and sub-pixel layout) it always had.
+  const kf = parseKeyframes(P.kf), motion = hasKeyframes(kf) ? document.createElement('div') : null;
+  if (motion) {
+    motion.style.cssText = `position:absolute;inset:0;transform-origin:${STAGE_W / 2}px ${STAGE_H / 2}px`;
+    motion.append(content);
+    layer.replaceChildren(motion);
+  } else layer.replaceChildren(content);
   place(layer, content, P);
   const q = <E extends Element = HTMLElement>(s: string) => [...layer.querySelectorAll<E>(s)];
   const nums = (s: string) => s.split(',').map(Number);
@@ -100,7 +108,7 @@ export function build(layer: HTMLElement, clip: Clip | null, transparent = false
   const untils = q<HTMLElement | SVGElement>('[data-until]').map(el => ({ el, s: +el.dataset.until!, o: el.style.display }));
   const segs = q('[data-seg]').map(el => { const [f, s, d] = el.dataset.seg!.split('|').map(Number); return { el, f, s, d, w: 0 }; });
   const mv = q<SVGElement>('[data-move]').map(el => ({ el, v: nums(el.dataset.move!), press: el.dataset.press ? nums(el.dataset.press) : null }));
-  return t => {
+  const frame = (t: number) => {
     // Cue swaps first, so any text a reveal splits on this frame is measured in this frame's layout.
     for (const c of cuts) c.el.style.display = t >= c.s ? c.o : 'none';
     for (const c of untils) c.el.style.display = t < c.s ? c.o : 'none';
@@ -118,6 +126,15 @@ export function build(layer: HTMLElement, clip: Clip | null, transparent = false
       m.el.style.visibility = t >= s - 0.25 && t < D - 0.3 ? 'visible' : 'hidden';
     }
     if (custom) custom(t);
+  };
+  if (!motion) return frame;
+  return t => {
+    // Reveals measure their boxes lazily (clip edges, splits), so they must see the untransformed
+    // layout; the pose goes on afterwards, in the same frame, before anything is painted.
+    motion.style.transform = ''; motion.style.opacity = '';
+    frame(t);
+    const css = poseCss(poseAt(kf, t));
+    motion.style.transform = css.transform; motion.style.opacity = css.opacity;
   };
 }
 

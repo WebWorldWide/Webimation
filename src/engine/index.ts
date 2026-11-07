@@ -1,5 +1,6 @@
 export * from './tokens';
 export * from './easing';
+export * from './keyframes';
 export { EFFECTS, FX, GROUPS, defaultParams, type EffectDef, type FxCtx, type Group, type Params, type Render } from './effects';
 export * from './presets';
 export { createStage, build, type Stage, type StackItem } from './stage';
