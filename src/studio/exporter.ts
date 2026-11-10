@@ -1,7 +1,7 @@
 // Export graphics as files for a real video editor.
 // Desktop: frames stream to the Rust side, which writes a PNG sequence or encodes ProRes 4444 /
 // WebM / MP4 with the system's ffmpeg. Browser: PNG sequence in a .zip download.
-import { pngBytes, rasterize, type Clip } from '../engine';
+import { pngBytes, rasterize, SHAPE, TEMPLATES, type Clip } from '../engine';
 import { isDesktop } from './desktop';
 
 export const FORMATS = {
@@ -26,7 +26,9 @@ export const ffmpegPath = () => (ff ??= isDesktop ? invoke<string | null>('ffmpe
 export const canExport = async (f: FormatId) => !FORMATS[f].video || !!(await ffmpegPath());
 
 export const slug = (s: string) => s.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-|-$/g, '') || 'graphic';
-const join = (dir: string, name: string) => dir + (dir.includes('\\') && !dir.includes('/') ? '\\' : '/') + name;
+/** Display name of a graphic. */
+export const nameOf = (c: Clip) => (c.tpl === 'shape' ? SHAPE[c.props.shape]?.name ?? 'Shape' : c.tpl === 'stick' ? c.props.scene || 'Characters' : TEMPLATES[c.tpl]?.name ?? c.tpl);
+export const join = (dir: string, name: string) => dir + (dir.includes('\\') && !dir.includes('/') ? '\\' : '/') + name;
 
 /** Ask where to save. Returns a file path (video) or folder path (PNG sequence), or null. */
 export async function pickDestination(s: ExportSettings, name: string, many: boolean): Promise<string | null> {

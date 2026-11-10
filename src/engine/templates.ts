@@ -65,8 +65,8 @@ const T: Template[] = [
     html: (P, a) => `<div style="position:absolute;left:96px;bottom:92px;display:flex">
     ${R(0, 0.32, '', { w: 'display:flex', i: `width:14px;background:${a}`, fx: 'wipe' })}
     <div style="display:flex;flex-direction:column;align-items:flex-start">
-      ${R(0.06, 0.5, esc(P.name), { i: `background:var(--w-plate);color:var(--w-plate-fg);padding:18px 30px 16px;${SANS}font-weight:600;font-size:46px;line-height:1.05;letter-spacing:-.01em` })}
-      ${R(0.24, 0.45, esc(P.role), { i: `background:var(--w-plate2);color:var(--w-plate2-fg);padding:12px 30px;${CAPS}font-size:15px` })}
+      ${R(0.06, 0.5, esc(P.name), { i: `background:var(--w-plate);color:var(--w-plate-fg);padding:18px 30px 16px;box-shadow:0 10px 28px rgba(0,0,0,.28);${SANS}font-weight:600;font-size:46px;line-height:1.05;letter-spacing:-.01em` })}
+      ${R(0.24, 0.45, esc(P.role), { i: `background:var(--w-plate2);color:var(--w-plate2-fg);padding:12px 30px;box-shadow:0 10px 28px rgba(0,0,0,.28);${CAPS}font-size:15px` })}
     </div></div>`
   },
   {
@@ -96,7 +96,7 @@ const T: Template[] = [
         <path d="M0 149.5H384" style="stroke:var(--w-plate-fg)" stroke-width="1" opacity=".3"></path>
         <path data-draw=".75,1" pathLength="1" d="M0 132L48 124L96 128L144 108L192 112L240 82L288 62L336 32L384 8" fill="none" style="stroke:var(--w-plate-fg)" stroke-width="4" stroke-dasharray="1" stroke-dashoffset="1"></path>
         <rect data-cut="1.72" x="377" y="1" width="14" height="14" fill="${a}" style="stroke:var(--w-plate-fg)" stroke-width="2"></rect>
-      </svg>`, { w: 'position:absolute;right:96px;top:160px;width:440px', i: 'background:var(--w-plate);padding:26px 28px 30px;display:flex;flex-direction:column;gap:20px' })}`;
+      </svg>`, { w: 'position:absolute;right:96px;top:160px;width:440px', i: 'background:var(--w-plate);padding:26px 28px 30px;display:flex;flex-direction:column;gap:20px;box-shadow:0 14px 36px rgba(0,0,0,.25)' })}`;
     }
   },
   {

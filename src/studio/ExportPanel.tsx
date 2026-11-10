@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Clip } from '../engine';
 import { isDesktop } from './desktop';
-import { exportClip, ffmpegPath, FORMATS, FPS_OPTIONS, inFolder, pickDestination, SIZES, type ExportSettings, type FormatId, type SizeId } from './exporter';
+import { stackOf, spanOf } from './stack';
+import { fcpxml, readme, xmeml, type TimelineItem } from './timelineXml';
+import { exportClip, ffmpegPath, FORMATS, FPS_OPTIONS, inFolder, join, nameOf, pickDestination, SIZES, slug, type ExportSettings, type FormatId, type SizeId } from './exporter';
 
 type Item = { clip: Clip | Clip[]; name: string };
 interface Job { id: number; name: string; clip: Clip | Clip[]; s: ExportSettings; dest: string; p: number; status: 'wait' | 'run' | 'done' | 'error' | 'cancelled'; result?: string }
@@ -9,6 +11,9 @@ interface Props {
   /** The selected graphic, or its whole stack when other graphics overlap it. */
   sel: Item | null;
   all: Item[];
+  /** Every clip on the timeline, for the one-click editor package. */
+  clips: Clip[];
+  project: string;
   onLog: (msg: string) => void;
   onDone: (title: string, sub: string) => void;
   onStatus: (s: { name: string; p: number } | null) => void;
@@ -20,7 +25,7 @@ const load = (): ExportSettings => {
 };
 const LABEL: Record<FormatId, string> = { prores: 'ProRes', png: 'PNG', webm: 'WebM', mp4: 'MP4' };
 
-export function ExportPanel({ sel, all, onLog, onDone, onStatus }: Props) {
+export function ExportPanel({ sel, all, clips, project, onLog, onDone, onStatus }: Props) {
   const [s, setS] = useState<ExportSettings>(load);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [ff, setFf] = useState<string | null | undefined>(undefined);
@@ -73,6 +78,44 @@ export function ExportPanel({ sel, all, onLog, onDone, onStatus }: Props) {
     pump();
   };
 
+  /** One folder: every graphic (stacks rendered together) as transparent ProRes, plus timeline files
+   *  that put each one at its place in Premiere / Resolve / Final Cut. */
+  const exportPackage = async () => {
+    if (!clips.length || running.current) return;
+    const dir = await pickDestination({ ...s, format: 'png' }, project, true);
+    if (!dir || dir === 'download') return;
+    const ps: ExportSettings = { ...s, format: 'prores', transparent: true };
+    const stacks: Clip[][] = [];
+    for (const c of [...clips].sort((a, b) => a.start - b.start)) if (!stacks.some(g => g.includes(c))) stacks.push(stackOf(clips, c));
+    const [w, h] = SIZES[ps.size], items: TimelineItem[] = [];
+    const id = Date.now();
+    running.current = true;
+    abort.current = new AbortController();
+    const job: Job = { id, name: `${project} · ${stacks.length} graphics`, clip: clips, s: ps, dest: dir, p: 0, status: 'run' };
+    setJobs(js => [...js, job]);
+    try {
+      for (let i = 0; i < stacks.length; i++) {
+        const g = stacks[i], { start, end } = spanOf(g), nm = g.length > 1 ? `${nameOf(g[0])} + ${g.length - 1}` : nameOf(g[0]);
+        const file = `${String(i + 1).padStart(2, '0')}-${slug(nm)}.mov`;
+        await exportClip(g, ps, join(dir, file), file, p => { patch(id, { p: (i + p) / stacks.length * 0.98 }); onStatus({ name: job.name, p: (i + p) / stacks.length }); }, abort.current.signal);
+        items.push({ name: nm, file, start: Math.round(start * ps.fps), frames: Math.max(1, Math.round((end - start) * ps.fps)), lane: 0 });
+      }
+      const spec = { name: slug(project), dir, fps: ps.fps, width: w, height: h, items };
+      const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+      await Promise.all([
+        writeTextFile(join(dir, `${spec.name}.fcpxml`), fcpxml(spec)),
+        writeTextFile(join(dir, `${spec.name}.xml`), xmeml(spec)),
+        writeTextFile(join(dir, 'README.txt'), readme(spec))
+      ]);
+      patch(id, { status: 'done', p: 1, result: dir });
+      onDone(`Editor package ready · ${stacks.length} graphics`, dir);
+    } catch (e) {
+      const cancelled = e instanceof DOMException && e.name === 'AbortError';
+      patch(id, { status: cancelled ? 'cancelled' : 'error', result: cancelled ? 'Cancelled' : String(e instanceof Error ? e.message : e) });
+    }
+    abort.current = null; running.current = false; onStatus(null);
+  };
+
   return (
     <section style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="seg">{(Object.keys(FORMATS) as FormatId[]).map(id => <button key={id} className={'ease' + (s.format === id ? ' on' : '')} disabled={FORMATS[id].video && ff === null} style={FORMATS[id].video && ff === null ? { opacity: 0.4 } : undefined} onClick={() => set({ format: id })}>{LABEL[id]}</button>)}</div>
@@ -89,6 +132,12 @@ export function ExportPanel({ sel, all, onLog, onDone, onStatus }: Props) {
         <button className="btn-primary ease" style={{ flex: 1 }} disabled={!sel || blocked} onClick={() => sel && enqueue([sel])}>Export</button>
         <button className="btn ease" disabled={!all.length || blocked || (!isDesktop && all.length > 1)} onClick={() => enqueue(all)}>All</button>
       </div>
+      {isDesktop && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 12, borderTop: '1px solid var(--line-soft)' }}>
+          <button className="btn ease" disabled={!clips.length || !ff} onClick={exportPackage}>Export timeline for editor</button>
+          <span style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--muted)' }}>{ff ? 'Every graphic as transparent ProRes plus a timeline file for Premiere, Resolve and Final Cut, each already at its time.' : 'Needs ffmpeg.'}</span>
+        </div>
+      )}
       {jobs.slice().reverse().map(j => {
         const c = j.status === 'done' ? 'var(--ok)' : j.status === 'error' ? 'var(--danger)' : 'var(--hi)';
         return (

@@ -4,6 +4,7 @@ import { CastPanel } from './CastPanel';
 import { clamp, fmt, fmtS, FPS, INIT, LINES, TOTAL, WORDS } from './data';
 import { isDesktop, isMac } from './desktop';
 import { ExportPanel } from './ExportPanel';
+import { nameOf } from './exporter';
 import { Help, helpSeen } from './Help';
 import { MotionLibrary } from './MotionLibrary';
 import { ShapePanel } from './ShapePanel';
@@ -27,7 +28,6 @@ interface State {
 const HAIR = '1px solid var(--line)';
 const LANE = 40;
 const mono = (size: number, color = 'var(--muted)'): CSSProperties => ({ fontFamily: 'ui-monospace,Menlo,monospace', fontSize: size, color });
-const nameOf = (c: Clip) => (c.tpl === 'shape' ? SHAPE[c.props.shape]?.name ?? 'Shape' : c.tpl === 'stick' ? c.props.scene || 'Characters' : TEMPLATES[c.tpl]?.name ?? c.tpl);
 const SHAPE_LABEL: Record<string, string> = { double: '2.4×', leaderline: 'Look here', bubble: 'This is the trick', pin: 'Reykjavík', number: '1', bracket: 'First 48 h', tag: 'New', progress: '72%' };
 /** Graphic accents as chrome colours: white reads as ink on light chrome. */
 const chromeAcc = (id: string) => (id === 'white' ? 'var(--fg)' : ACC[id as keyof typeof ACC] || (/^#[0-9a-f]{6}$/i.test(id) ? id : ACC.orange));
@@ -420,6 +420,8 @@ export class Studio extends Component<Props, State> {
             <ExportPanel
               sel={{ clip: g.length > 1 ? g : sel, name: g.length > 1 ? `${name(g[0])} + ${g.length - 1}` : name(sel) }}
               all={cs.map(c => ({ clip: c, name: name(c) }))}
+              clips={s.clips}
+              project="Webimation episode"
               onLog={() => {}}
               onDone={(title, sub) => this.setState({ banner: { title, sub } })}
               onStatus={st => this.setState({ exporting: st })}
