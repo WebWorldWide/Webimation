@@ -45,13 +45,15 @@ export async function pickDestination(s: ExportSettings, name: string, many: boo
 /** Where a clip lands inside a folder chosen for a batch / PNG export. */
 export const inFolder = (dir: string, s: ExportSettings, name: string) => join(dir, FORMATS[s.format].video ? `${slug(name)}.${FORMATS[s.format].ext}` : slug(name));
 
-/** Render one clip and write it. `dest` is a file (video), a folder (PNG), or 'download' (browser). */
-export async function exportClip(clip: Clip | Clip[], s: ExportSettings, dest: string, name: string, onProgress: (p: number) => void, signal?: AbortSignal): Promise<string> {
+type Rasterizer = (o: { width: number; height: number; fps: number; transparent: boolean }, onFrame: (cv: HTMLCanvasElement, i: number, n: number) => Promise<void> | void, signal?: AbortSignal) => Promise<void>;
+
+/** Render any frame source and write it. `dest` is a file (video), a folder (PNG), or 'download' (browser). */
+export async function exportFrames(raster: Rasterizer, s: ExportSettings, dest: string, name: string, onProgress: (p: number) => void, signal?: AbortSignal): Promise<string> {
   const [width, height] = SIZES[s.size], F = FORMATS[s.format];
   const opts = { width, height, fps: s.fps, transparent: s.transparent && F.alpha };
   if (!isDesktop) {
     const files: { name: string; data: Uint8Array<ArrayBuffer> }[] = [];
-    await rasterize(clip, opts, async (cv, i, n) => {
+    await raster(opts, async (cv, i, n) => {
       files.push({ name: `${slug(name)}_${String(i + 1).padStart(5, '0')}.png`, data: await pngBytes(cv) });
       onProgress((i + 1) / n);
     }, signal);
@@ -60,7 +62,7 @@ export async function exportClip(clip: Clip | Clip[], s: ExportSettings, dest: s
   }
   const id = await invoke<string>('export_begin');
   try {
-    await rasterize(clip, opts, async (cv, i, n) => {
+    await raster(opts, async (cv, i, n) => {
       await invoke('export_frame', await pngBytes(cv), { headers: { 'x-export-id': id, 'x-index': String(i) } });
       onProgress(((i + 1) / n) * (F.video ? 0.92 : 0.98));
     }, signal);
@@ -72,6 +74,10 @@ export async function exportClip(clip: Clip | Clip[], s: ExportSettings, dest: s
     throw e;
   }
 }
+
+/** Render one clip (or stack) and write it. */
+export const exportClip = (clip: Clip | Clip[], s: ExportSettings, dest: string, name: string, onProgress: (p: number) => void, signal?: AbortSignal) =>
+  exportFrames((o, f, sig) => rasterize(clip, o, f, sig), s, dest, name, onProgress, signal);
 
 // ── browser fallback: stored (uncompressed) zip; PNGs are already compressed ──
 const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();

@@ -13,3 +13,5 @@ export { shapeOf, shapeParams } from './shapeRender';
 export { rasterize, pngBytes, type RasterOpts } from './raster';
 export * from './stick';
 export { stickLength } from './stickRender';
+export * from './dither';
+export * from './pixelField';

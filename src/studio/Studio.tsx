@@ -11,6 +11,7 @@ import { ShapePanel } from './ShapePanel';
 import { activeAt, compact, freeTrack, MAX_LAYERS, settle, shiftLayer, spanOf, stackOf, trackOf } from './stack';
 import { StylePanel } from './StylePanel';
 import { ThemeSwitch } from './ThemeSwitch';
+import { Transitions } from './Transitions';
 
 interface Props { autoplay?: boolean; defaultReveal?: string; startZoom?: 1 | 2 | 4 }
 type AddTab = 'graphics' | 'shapes' | 'characters';
@@ -21,7 +22,7 @@ interface State {
   /** Footage shown under the stage so graphics can be placed on the real shot. */
   footage: { url: string; kind: 'video' | 'image'; name: string } | null;
   /** 'single' loops the selected graphic and anything stacked with it; 'timeline' plays the episode. */
-  mode: 'timeline' | 'single'; banner: { title: string; sub: string } | null; library: boolean; help: boolean;
+  mode: 'timeline' | 'single'; banner: { title: string; sub: string } | null; library: boolean; transitions: boolean; help: boolean;
   add: AddTab; edit: EditTab;
 }
 
@@ -70,7 +71,7 @@ const Stepper = ({ label, value, dec, inc }: { label: string; value: ReactNode; 
 export class Studio extends Component<Props, State> {
   state: State = {
     clips: loadClips() ?? INIT.map(c => ({ ...c, track: 0, props: { ...c.props } })), selId: loadClips() ? null : 'c3', anchor: null, playing: false, guides: false,
-    zoom: this.props.startZoom ?? 4, exporting: null, footage: null, mode: 'timeline', banner: null, library: false, help: !helpSeen(),
+    zoom: this.props.startZoom ?? 4, exporting: null, footage: null, mode: 'timeline', banner: null, library: false, transitions: false, help: !helpSeen(),
     add: 'graphics', edit: 'content'
   };
   t = 27.8;
@@ -207,7 +208,7 @@ export class Studio extends Component<Props, State> {
   }
   shuffleMotion() { const p = LIBRARY[Math.floor(Math.random() * LIBRARY.length)]; this.setProp('reveal', p.id); this.replay(); }
   key(e: KeyboardEvent) {
-    if (this.state.library || this.state.help) return;
+    if (this.state.library || this.state.transitions || this.state.help) return;
     const tg = (e.target as HTMLElement | null)?.tagName;
     if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT') return;
     const single = this.state.mode === 'single';
@@ -444,6 +445,7 @@ export class Studio extends Component<Props, State> {
           <span style={{ flex: 1 }} />
           {s.exporting && <span style={mono(12, 'var(--fg-2)')}>Exporting {Math.floor(s.exporting.p * 100)}%</span>}
           <button className="btn btn-sm ease" onClick={() => this.setState({ library: true })}>Animations</button>
+          <button className="btn btn-sm ease" onClick={() => this.setState({ transitions: true })}>Transitions</button>
           <ThemeSwitch />
           <button className="btn btn-sm ease" aria-label="Help" title="Help" style={{ width: 28, padding: 0 }} onClick={() => this.setState({ help: true })}>?</button>
         </header>
@@ -506,6 +508,7 @@ export class Studio extends Component<Props, State> {
             onLog={() => {}}
           />
         )}
+        {s.transitions && <Transitions onClose={() => this.setState({ transitions: false })} onDone={(title, sub) => this.setState({ banner: { title, sub } })} />}
         {s.help && <Help onClose={() => this.setState({ help: false })} />}
       </div>
     );
