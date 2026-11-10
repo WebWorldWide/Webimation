@@ -45,6 +45,27 @@ export async function pickDestination(s: ExportSettings, name: string, many: boo
 /** Where a clip lands inside a folder chosen for a batch / PNG export. */
 export const inFolder = (dir: string, s: ExportSettings, name: string) => join(dir, FORMATS[s.format].video ? `${slug(name)}.${FORMATS[s.format].ext}` : slug(name));
 
+
+/**
+ * Overlap PNG encoding (and the write after it) with rendering the next frame. `toBlob` snapshots the canvas
+ * when it is called, so the same canvas can be redrawn straight away. At most `depth` frames are in flight,
+ * which bounds memory; `drain()` waits for the rest and rethrows the first failure.
+ */
+export function pipeline(sink: (png: Uint8Array<ArrayBuffer>, i: number) => Promise<void>, depth = 4) {
+  const live = new Set<Promise<void>>();
+  let failed: unknown = null;
+  return {
+    async push(cv: HTMLCanvasElement, i: number) {
+      if (failed) throw failed;
+      const job: Promise<void> = pngBytes(cv).then(b => sink(b, i)).catch(e => { failed ??= e; }).finally(() => { live.delete(job); });
+      live.add(job);
+      if (live.size >= depth) await Promise.race(live);
+      if (failed) throw failed;
+    },
+    async drain() { await Promise.all(live); if (failed) throw failed; }
+  };
+}
+
 type Rasterizer = (o: { width: number; height: number; fps: number; transparent: boolean }, onFrame: (cv: HTMLCanvasElement, i: number, n: number) => Promise<void> | void, signal?: AbortSignal) => Promise<void>;
 
 /** Render any frame source and write it. `dest` is a file (video), a folder (PNG), or 'download' (browser). */
@@ -53,19 +74,17 @@ export async function exportFrames(raster: Rasterizer, s: ExportSettings, dest: 
   const opts = { width, height, fps: s.fps, transparent: s.transparent && F.alpha };
   if (!isDesktop) {
     const files: { name: string; data: Uint8Array<ArrayBuffer> }[] = [];
-    await raster(opts, async (cv, i, n) => {
-      files.push({ name: `${slug(name)}_${String(i + 1).padStart(5, '0')}.png`, data: await pngBytes(cv) });
-      onProgress((i + 1) / n);
-    }, signal);
+    const pl = pipeline(async (data, i) => { files[i] = { name: `${slug(name)}_${String(i + 1).padStart(5, '0')}.png`, data }; });
+    await raster(opts, async (cv, i, n) => { await pl.push(cv, i); onProgress((i + 1) / n); }, signal);
+    await pl.drain();
     download(zip(files), `${slug(name)}-png.zip`);
     return `${files.length} frames · ${slug(name)}-png.zip`;
   }
   const id = await invoke<string>('export_begin');
   try {
-    await raster(opts, async (cv, i, n) => {
-      await invoke('export_frame', await pngBytes(cv), { headers: { 'x-export-id': id, 'x-index': String(i) } });
-      onProgress(((i + 1) / n) * (F.video ? 0.92 : 0.98));
-    }, signal);
+    const pl = pipeline((png, i) => invoke('export_frame', png, { headers: { 'x-export-id': id, 'x-index': String(i) } }));
+    await raster(opts, async (cv, i, n) => { await pl.push(cv, i); onProgress(((i + 1) / n) * (F.video ? 0.92 : 0.98)); }, signal);
+    await pl.drain();
     const out = await invoke<string>('export_finish', { id, format: s.format, fps: s.fps, out: dest, stem: slug(name) });
     onProgress(1);
     return out;

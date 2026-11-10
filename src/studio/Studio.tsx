@@ -1,5 +1,5 @@
 import { Component, createRef, type CSSProperties, type ReactNode } from 'react';
-import { ACC, BASE_REVEALS, castLength, createStage, LIBRARY, LIBRARY_TEMPLATES, presetName, SCENES, SHAPE, SHAPE_GROUPS, SHAPES, TEMPLATES, type Clip, type Stage } from '../engine';
+import { ACC, BASE_REVEALS, castLength, createStage, DITHER_PRESETS, FIELD_PRESETS, LIBRARY, LIBRARY_TEMPLATES, presetName, SCENES, SHAPE, SHAPE_GROUPS, SHAPES, TEMPLATES, type Clip, type Stage } from '../engine';
 import { CastPanel } from './CastPanel';
 import { clamp, fmt, fmtS, FPS, INIT, LINES, TOTAL, WORDS } from './data';
 import { isDesktop, isMac } from './desktop';
@@ -14,7 +14,7 @@ import { ThemeSwitch } from './ThemeSwitch';
 import { Transitions } from './Transitions';
 
 interface Props { autoplay?: boolean; defaultReveal?: string; startZoom?: 1 | 2 | 4 }
-type AddTab = 'graphics' | 'shapes' | 'characters';
+type AddTab = 'graphics' | 'shapes' | 'characters' | 'transitions';
 type EditTab = 'content' | 'style' | 'motion' | 'export';
 interface State {
   clips: Clip[]; selId: string | null; anchor: { t: number; w: string } | null; playing: boolean; guides: boolean;
@@ -22,7 +22,7 @@ interface State {
   /** Footage shown under the stage so graphics can be placed on the real shot. */
   footage: { url: string; kind: 'video' | 'image'; name: string } | null;
   /** 'single' loops the selected graphic and anything stacked with it; 'timeline' plays the episode. */
-  mode: 'timeline' | 'single'; banner: { title: string; sub: string } | null; library: boolean; transitions: boolean; help: boolean;
+  mode: 'timeline' | 'single'; banner: { title: string; sub: string } | null; library: boolean; transitions: string | null; help: boolean;
   add: AddTab; edit: EditTab;
 }
 
@@ -71,7 +71,7 @@ const Stepper = ({ label, value, dec, inc }: { label: string; value: ReactNode; 
 export class Studio extends Component<Props, State> {
   state: State = {
     clips: loadClips() ?? INIT.map(c => ({ ...c, track: 0, props: { ...c.props } })), selId: loadClips() ? null : 'c3', anchor: null, playing: false, guides: false,
-    zoom: this.props.startZoom ?? 4, exporting: null, footage: null, mode: 'timeline', banner: null, library: false, transitions: false, help: !helpSeen(),
+    zoom: this.props.startZoom ?? 4, exporting: null, footage: null, mode: 'timeline', banner: null, library: false, transitions: null, help: !helpSeen(),
     add: 'graphics', edit: 'content'
   };
   t = 27.8;
@@ -208,7 +208,7 @@ export class Studio extends Component<Props, State> {
   }
   shuffleMotion() { const p = LIBRARY[Math.floor(Math.random() * LIBRARY.length)]; this.setProp('reveal', p.id); this.replay(); }
   key(e: KeyboardEvent) {
-    if (this.state.library || this.state.transitions || this.state.help) return;
+    if (this.state.library || this.state.transitions !== null || this.state.help) return;
     const tg = (e.target as HTMLElement | null)?.tagName;
     if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT') return;
     const single = this.state.mode === 'single';
@@ -224,6 +224,7 @@ export class Studio extends Component<Props, State> {
     else if (e.key === 'Delete' || e.key === 'Backspace') { if (this.sel()) { e.preventDefault(); this.remove(); } }
     else if (e.key === 'Escape') this.setState({ anchor: null });
     else if (e.key === 'm' || e.key === 'M') this.setState({ library: true });
+    else if (e.key === 't' || e.key === 'T') this.setState({ transitions: '' });
     else if (e.key === '?') this.setState({ help: true });
   }
   /** Drag on the preview: moves the selected graphic if it's on screen, otherwise the top one. */
@@ -283,9 +284,9 @@ export class Studio extends Component<Props, State> {
     const s = this.state, at = () => this.t;
     const row = (key: string, label: string, onClick: () => void) => <button key={key} className="add-row ease" onClick={onClick}>{label}</button>;
     return (
-      <aside style={{ flex: '0 0 230px', minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--panel)', borderRight: HAIR }}>
+      <aside style={{ flex: '0 0 250px', minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--panel)', borderRight: HAIR }}>
         <div style={{ padding: '14px 14px 0' }}>
-          <Tabs value={s.add} onChange={v => this.setState({ add: v })} options={[['graphics', 'Graphics'], ['shapes', 'Shapes'], ['characters', 'Characters']]} />
+          <Tabs value={s.add} onChange={v => this.setState({ add: v })} options={[['graphics', 'Graphics'], ['shapes', 'Shapes'], ['characters', 'Cast'], ['transitions', 'Fades']]} />
         </div>
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 0 16px' }}>
           {s.add === 'graphics' && LIBRARY_TEMPLATES.map(T => row(T.id, T.name, () => this.add(T.id, at())))}
@@ -295,6 +296,17 @@ export class Studio extends Component<Props, State> {
               {SHAPES.filter(x => x.group === g).map(x => row(x.id, x.name, () => this.add('shape', at(), { shape: x.id, label: SHAPE_LABEL[x.id] ?? '' })))}
             </div>
           ))}
+          {s.add === 'transitions' && (
+            <>
+              <div style={{ padding: '6px 20px 10px', fontSize: 12.5, lineHeight: 1.45, color: 'var(--muted)' }}>Dithered covers and reveals for hiding a cut. Exported as separate clips with transparency.</div>
+              {([['Pixel field', FIELD_PRESETS], ['ASCII glyphs', DITHER_PRESETS]] as const).map(([g, list]) => (
+                <div key={g} style={{ padding: '6px 0' }}>
+                  <div className="caps" style={{ padding: '8px 20px 4px' }}>{g}</div>
+                  {list.map(x => row(x.id, x.name, () => this.setState({ transitions: x.id })))}
+                </div>
+              ))}
+            </>
+          )}
           {s.add === 'characters' && SCENES.map(sc => row(sc.id, sc.name, () => { const cast = sc.cast(); this.add('stick', at(), { cast: JSON.stringify(cast), scene: sc.name }, +(castLength(cast) + 0.3).toFixed(1)); }))}
         </div>
       </aside>
@@ -445,7 +457,7 @@ export class Studio extends Component<Props, State> {
           <span style={{ flex: 1 }} />
           {s.exporting && <span style={mono(12, 'var(--fg-2)')}>Exporting {Math.floor(s.exporting.p * 100)}%</span>}
           <button className="btn btn-sm ease" onClick={() => this.setState({ library: true })}>Animations</button>
-          <button className="btn btn-sm ease" onClick={() => this.setState({ transitions: true })}>Transitions</button>
+          <button className="btn btn-sm ease" onClick={() => this.setState({ transitions: '' })}>Transitions</button>
           <ThemeSwitch />
           <button className="btn btn-sm ease" aria-label="Help" title="Help" style={{ width: 28, padding: 0 }} onClick={() => this.setState({ help: true })}>?</button>
         </header>
@@ -508,7 +520,7 @@ export class Studio extends Component<Props, State> {
             onLog={() => {}}
           />
         )}
-        {s.transitions && <Transitions onClose={() => this.setState({ transitions: false })} onDone={(title, sub) => this.setState({ banner: { title, sub } })} />}
+        {s.transitions !== null && <Transitions initial={s.transitions} onClose={() => this.setState({ transitions: null })} onDone={(title, sub) => this.setState({ banner: { title, sub } })} />}
         {s.help && <Help onClose={() => this.setState({ help: false })} />}
       </div>
     );

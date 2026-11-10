@@ -65,8 +65,8 @@ const Slider = ({ label, value, min, max, step, onChange, fmt = (v: number) => S
   <Row label={label} note={fmt(value)}><input className="range" type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(+e.target.value)} /></Row>
 );
 
-export function Transitions({ onClose, onDone }: { onClose: () => void; onDone: (title: string, sub: string) => void }) {
-  const [item, setItem] = useState<Item>(ITEMS[0]);
+export function Transitions({ initial, onClose, onDone }: { initial?: string; onClose: () => void; onDone: (title: string, sub: string) => void }) {
+  const [item, setItem] = useState<Item>(() => ITEMS.find(i => i.id === initial) ?? ITEMS[0]);
   const [es, setEs] = useState<ExportSettings>(loadSettings);
   const [ff, setFf] = useState<string | null | undefined>(undefined);
   const [job, setJob] = useState<{ p: number; err?: string; done?: string } | null>(null);
