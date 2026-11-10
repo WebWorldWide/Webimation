@@ -6,6 +6,8 @@
 // Bayer threshold turns c into a glyph tier. Tier 0 is empty (the picture shows through), the last tier is a
 // solid cell, so s = 0 and s = 1 are exactly transparent / exactly opaque and the editor's cut can hide in them.
 
+import { FONTS } from './fonts';
+
 export type DitherStyle = 'left' | 'right' | 'up' | 'down' | 'diagonal' | 'radial' | 'inward' | 'noise';
 /** in: clear → solid · out: solid → clear · inout: clear → solid → clear (cut on the solid middle). */
 export type DitherMode = 'in' | 'out' | 'inout';
@@ -28,6 +30,8 @@ export interface DitherSpec {
   /** Glyph shimmer in changes per second (0 = still). */
   flicker: number;
   seed: number;
+  /** Font id from FONTS for text ramps (default: JetBrains Mono). */
+  font?: string;
 }
 
 export const STYLE_LABEL: Record<DitherStyle, string> = { left: 'Wipe right', right: 'Wipe left', up: 'Wipe up', down: 'Wipe down', diagonal: 'Diagonal', radial: 'From centre', inward: 'From edges', noise: 'Static' };
@@ -116,16 +120,24 @@ export function ditherLevels(spec: DitherSpec, g: Grid, s: number, out?: Uint8Ar
 // ── drawing ──────────────────────────────────────────────────────────────
 
 const MONO = "'JetBrains Mono Variable','JetBrains Mono',ui-monospace,Menlo,Consolas,monospace";
-let fontsReady: Promise<unknown> | null = null;
-/** Make sure the glyph font is loaded before the first frame is drawn. */
-export const prepareDither = () => (fontsReady ??= typeof document === 'undefined' ? Promise.resolve() : Promise.all([document.fonts.load(`700 16px ${MONO}`), document.fonts.ready]).catch(() => {}));
+const familyOf = (spec: Pick<DitherSpec, 'font'>) => FONTS.find(f => f.id === spec.font)?.family ?? MONO;
+const loaded = new Map<string, Promise<unknown>>();
+/** Make sure the glyph font for `spec` is loaded before a frame is drawn (cached per family). */
+export const prepareDither = (spec: Pick<DitherSpec, 'font'> = {}) => {
+  if (typeof document === 'undefined') return Promise.resolve();
+  const fam = familyOf(spec);
+  if (!loaded.has(fam)) loaded.set(fam, Promise.all([document.fonts.load(`700 16px ${fam}`), document.fonts.ready]).catch(() => {}));
+  return loaded.get(fam)!;
+};
 
 interface Atlas { key: string; tiles: HTMLCanvasElement; variants: number[] }
 let atlas: Atlas | null = null;
+/** Drop the cached glyph atlas (call after a font finishes loading so glyphs are redrawn with it). */
+export const resetDitherAtlas = () => { atlas = null; };
 
 /** One strip per tier, every variant of every tier side by side. Rebuilt only when cell size, ramp or colour change. */
 function atlasFor(spec: DitherSpec, g: Grid): Atlas {
-  const ink = RAMPS[spec.ramp].kind === 'text' ? spec.fg : spec.bg, key = [spec.ramp, g.cw, g.ch, ink].join('|');
+  const ink = RAMPS[spec.ramp].kind === 'text' ? spec.fg : spec.bg, key = [spec.ramp, g.cw, g.ch, ink, familyOf(spec)].join('|');
   if (atlas?.key === key) return atlas;
   const def = RAMPS[spec.ramp], n = def.tiers.length;
   const variants = def.tiers.map(t => (def.kind === 'text' ? [...t].length : 1));
@@ -134,7 +146,7 @@ function atlasFor(spec: DitherSpec, g: Grid): Atlas {
   cv.width = g.cw * total; cv.height = g.ch;
   const c = cv.getContext('2d')!;
   c.fillStyle = ink; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
-  c.font = `700 ${Math.round(g.cw / 0.6)}px ${MONO}`;
+  c.font = `700 ${Math.round(g.cw / 0.6)}px ${familyOf(spec)}`;
   let x = 0;
   for (let i = 0; i < n; i++) {
     const frac = (i + 1) / (n + 1);
@@ -193,7 +205,7 @@ export const ditherFrames = (spec: DitherSpec, fps: number) => Math.max(2, Math.
 
 /** Render every frame of a transition. First frame is s = 0, last is s = 1. */
 export async function ditherRaster(spec: DitherSpec, o: DitherRasterOpts, onFrame: (canvas: HTMLCanvasElement, i: number, n: number) => Promise<void> | void, signal?: AbortSignal) {
-  await prepareDither();
+  await prepareDither(spec);
   const canvas = document.createElement('canvas');
   canvas.width = o.width; canvas.height = o.height;
   const ctx = canvas.getContext('2d')!, n = ditherFrames(spec, o.fps);

@@ -26,12 +26,14 @@ export interface FieldSpec {
   /** How much the edge wobbles, 0..1. */
   wobble: number;
   seed: number;
+  /** Custom colours that replace parts of the chosen palette. */
+  colors?: Partial<Pal>;
 }
 
 export const SHAPE_LABEL: Record<FieldShape, string> = { tide: 'Tide', eclipse: 'Eclipse', aperture: 'Aperture', blade: 'Blade', rise: 'Rise' };
 export const PALETTE_LABEL: Record<FieldPalette, string> = { orchid: 'Orchid', ember: 'Ember', glacier: 'Glacier', toxic: 'Toxic', paper: 'Paper' };
 
-interface Pal { deep: string; mid: string; rim: string; speck: string }
+export interface Pal { deep: string; mid: string; rim: string; speck: string }
 export const PALETTES: Record<FieldPalette, Pal> = {
   orchid: { deep: '#3A0B2E', mid: '#E4569F', rim: '#8EA2FF', speck: '#FFFFFF' },
   ember: { deep: '#2B0A06', mid: '#FF6A2B', rim: '#FFD36B', speck: '#FFF1D6' },
@@ -40,7 +42,11 @@ export const PALETTES: Record<FieldPalette, Pal> = {
   paper: { deep: '#C9C2B2', mid: '#F2EEE3', rim: '#111111', speck: '#111111' }
 };
 
-const rgb = (hex: string): [number, number, number] => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+export const paletteOf = (spec: Pick<FieldSpec, 'palette' | 'colors'>): Pal => ({ ...PALETTES[spec.palette], ...spec.colors });
+const rgb = (hex: string): [number, number, number] => {
+  const h = /^#[0-9a-f]{6}$/i.test(hex) ? hex : '#000000';
+  return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+};
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
@@ -111,7 +117,7 @@ let small: HTMLCanvasElement | null = null;
 
 /** Draw one frame at progress s ∈ [0, 1] onto `ctx` (w × h). Clears it first. */
 export function fieldFrame(ctx: CanvasRenderingContext2D, w: number, h: number, s: number, spec: FieldSpec): void {
-  const g = fieldGrid(spec, w, h), pal = PALETTES[spec.palette];
+  const g = fieldGrid(spec, w, h), pal = paletteOf(spec);
   const cols = [[0, 0, 0], rgb(pal.speck), rgb(pal.rim), rgb(pal.mid), rgb(pal.deep)];
   if (!small) small = document.createElement('canvas');
   if (small.width !== g.cols || small.height !== g.rows) { small.width = g.cols; small.height = g.rows; }

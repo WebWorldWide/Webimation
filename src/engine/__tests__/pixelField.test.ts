@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classify, FIELD_PRESETS, fieldFrames, fieldGrid, reach, type FieldShape, type FieldSpec } from '../pixelField';
+import { paletteOf, PALETTES, classify, FIELD_PRESETS, fieldFrames, fieldGrid, reach, type FieldShape, type FieldSpec } from '../pixelField';
 
 const SHAPES: FieldShape[] = ['tide', 'eclipse', 'aperture', 'blade', 'rise'];
 const hist = (spec: FieldSpec, s: number) => {
@@ -39,5 +39,10 @@ describe('pixel-field transitions', () => {
     expect(reach({ mode: 'in', hold: 0 }, 1)).toBeCloseTo(1);
     expect(reach({ mode: 'out', hold: 0 }, 0)).toBeCloseTo(1);
     expect(fieldFrames({ ...FIELD_PRESETS[0].spec, dur: 1.4 }, 30)).toBe(42);
+  });
+  it('custom colours override only the parts they name', () => {
+    const p = paletteOf({ palette: 'orchid', colors: { mid: '#00FF00' } });
+    expect(p.mid).toBe('#00FF00');
+    expect(p.deep).toBe(PALETTES.orchid.deep);
   });
 });

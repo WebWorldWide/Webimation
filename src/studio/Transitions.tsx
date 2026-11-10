@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  DITHER_PRESETS, ditherFrame, ditherRaster, FIELD_PRESETS, fieldFrame, fieldRaster, MODE_LABEL, PALETTE_LABEL, prepareDither, RAMP_LABEL, SHAPE_LABEL, STYLE_LABEL,
-  type DitherSpec, type FieldSpec
+  DITHER_PRESETS, ditherFrame, ditherRaster, FIELD_PRESETS, fieldFrame, fieldRaster, FONTS, MODE_LABEL, PALETTE_LABEL, paletteOf, prepareDither, RAMP_LABEL, resetDitherAtlas, SHAPE_LABEL, STYLE_LABEL,
+  type DitherSpec, type FieldSpec, type Pal
 } from '../engine';
 import { isDesktop } from './desktop';
 import { exportFrames, ffmpegPath, FORMATS, FPS_OPTIONS, pickDestination, SIZES, slug, type ExportSettings, type FormatId, type SizeId } from './exporter';
@@ -13,6 +13,17 @@ const ITEMS: Item[] = [
   ...DITHER_PRESETS.map(p => ({ ...p, kind: 'glyph' as const }))
 ];
 const HOLD = 0.5;
+const EDITS_KEY = 'webimation.transitions.v1';
+type Edits = Record<string, Record<string, unknown>>;
+const loadEdits = (): Edits => { try { return JSON.parse(localStorage.getItem(EDITS_KEY) || '{}'); } catch { return {}; } };
+const withEdits = (edits: Edits): Item[] => ITEMS.map(i => (edits[i.id] ? ({ ...i, spec: { ...i.spec, ...edits[i.id] } } as Item) : i));
+const COLOR_LABEL: Record<keyof Pal, string> = { deep: 'Deep', mid: 'Main', rim: 'Rim', speck: 'Stipple' };
+const ColorBox = ({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) => (
+  <label style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-start' }}>
+    <span style={{ fontSize: 11.5, color: 'var(--label)' }}>{label}</span>
+    <input type="color" value={/^#[0-9a-f]{6}$/i.test(value) ? value : '#000000'} onChange={e => onChange(e.target.value.toUpperCase())} aria-label={label} style={{ width: 52, height: 30, padding: 2, border: '1px solid var(--line-strong)', background: 'var(--raised)', cursor: 'pointer' }} />
+  </label>
+);
 const KEY = 'webimation.export.v1';
 const ALPHA_FORMATS: FormatId[] = ['prores', 'png', 'webm'];
 const LABEL: Record<FormatId, string> = { prores: 'ProRes', png: 'PNG', webm: 'WebM', mp4: 'MP4' };
@@ -66,14 +77,21 @@ const Slider = ({ label, value, min, max, step, onChange, fmt = (v: number) => S
 );
 
 export function Transitions({ initial, onClose, onDone }: { initial?: string; onClose: () => void; onDone: (title: string, sub: string) => void }) {
-  const [item, setItem] = useState<Item>(() => ITEMS.find(i => i.id === initial) ?? ITEMS[0]);
+  const [edits, setEdits] = useState<Edits>(loadEdits);
+  const [selId, setSelId] = useState<string>(() => ITEMS.find(i => i.id === initial)?.id ?? ITEMS[0].id);
+  const [query, setQuery] = useState('');
+  const items = useMemo(() => withEdits(edits), [edits]);
+  const item = items.find(i => i.id === selId) ?? items[0];
   const [es, setEs] = useState<ExportSettings>(loadSettings);
   const [ff, setFf] = useState<string | null | undefined>(undefined);
   const [job, setJob] = useState<{ p: number; err?: string; done?: string } | null>(null);
   const cv = useRef<HTMLCanvasElement>(null), range = useRef<HTMLInputElement>(null), abort = useRef<AbortController | null>(null);
   const itemRef = useRef(item), t = useRef(0), playing = useRef(!RM);
   itemRef.current = item;
-  useEffect(() => { ffmpegPath().then(setFf); prepareDither(); }, []);
+  useEffect(() => { ffmpegPath().then(setFf); }, []);
+  useEffect(() => { try { localStorage.setItem(EDITS_KEY, JSON.stringify(edits)); } catch { /* storage blocked */ } }, [edits]);
+  const fontId = item.kind === 'glyph' ? item.spec.font : undefined;
+  useEffect(() => { if (item.kind === 'glyph') prepareDither(item.spec).then(resetDitherAtlas); }, [item.kind, fontId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(es)); } catch { /* storage blocked */ } }, [es]);
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
@@ -91,7 +109,11 @@ export function Transitions({ initial, onClose, onDone }: { initial?: string; on
     });
   }, []);
 
-  const patch = (p: Partial<FieldSpec & DitherSpec>) => setItem(i => ({ ...i, spec: { ...i.spec, ...p } }) as Item);
+  const patch = (p: Record<string, unknown>) => setEdits(e => ({ ...e, [item.id]: { ...e[item.id], ...p } }));
+  const reset = () => setEdits(e => { const n = { ...e }; delete n[item.id]; return n; });
+  const edited = !!edits[item.id];
+  const q = query.trim().toLowerCase();
+  const shown = items.filter(i => !q || `${i.name} ${i.note} ${i.kind === 'field' ? 'pixel field dither' : 'ascii glyph text'}`.toLowerCase().includes(q));
   const blocked = FORMATS[es.format].video && !ff;
   const busy = !!job && job.p < 1 && !job.err && !job.done;
 
@@ -118,11 +140,13 @@ export function Transitions({ initial, onClose, onDone }: { initial?: string; on
         <b style={{ fontSize: 15 }}>Transitions</b>
         <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Dithered covers and reveals, exported with real transparency</span>
         <span style={{ flex: 1 }} />
+        <input className="field-input" placeholder="Search transitions" aria-label="Search transitions" autoFocus value={query} onChange={e => setQuery(e.target.value)} style={{ width: 220, height: 30 }} />
         <button className="btn btn-sm ease" onClick={onClose}>Close</button>
       </header>
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         <div style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 24, display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 22, alignContent: 'start' }}>
-          {ITEMS.map(it => <Card key={it.id} item={it.id === item.id ? item : it} on={it.id === item.id} onPick={() => { setItem(it); t.current = 0; }} />)}
+          {shown.map(it => <Card key={it.id} item={it} on={it.id === item.id} onPick={() => { setSelId(it.id); t.current = 0; }} />)}
+          {!shown.length && <span style={{ fontSize: 14, color: 'var(--fg-3)' }}>No transitions match.</span>}
         </div>
         <aside style={{ width: 380, flex: 'none', borderLeft: '1px solid var(--line)', background: 'var(--panel)', overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ position: 'relative', aspectRatio: '16/9', background: 'linear-gradient(135deg,#3b4a5e,#7d8fa6 55%,#a9b6c7)', boxShadow: '0 0 0 1px var(--stage-ring)' }}>
@@ -138,6 +162,11 @@ export function Transitions({ initial, onClose, onDone }: { initial?: string; on
             <>
               <Row label="Shape"><Seg value={spec.shape} options={(Object.keys(SHAPE_LABEL) as (keyof typeof SHAPE_LABEL)[]).map(k => [k, SHAPE_LABEL[k]])} onChange={v => patch({ shape: v })} /></Row>
               <Row label="Palette"><Seg value={spec.palette} options={(Object.keys(PALETTE_LABEL) as (keyof typeof PALETTE_LABEL)[]).map(k => [k, PALETTE_LABEL[k]])} onChange={v => patch({ palette: v })} /></Row>
+              <Row label="Colours" note={edits[item.id]?.colors ? 'custom' : undefined}>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  {(Object.keys(COLOR_LABEL) as (keyof Pal)[]).map(k => <ColorBox key={k} label={COLOR_LABEL[k]} value={paletteOf(spec)[k]} onChange={v => patch({ colors: { ...spec.colors, [k]: v } })} />)}
+                </div>
+              </Row>
               <Slider label="Pixel size" value={spec.block} min={2} max={12} step={1} onChange={v => patch({ block: v })} fmt={v => v + ' px'} />
               <Slider label="Stipple" value={spec.grain} min={0} max={0.4} step={0.01} onChange={v => patch({ grain: v })} />
               <Slider label="Halo reach" value={spec.halo} min={0.02} max={0.4} step={0.01} onChange={v => patch({ halo: v })} />
@@ -147,12 +176,28 @@ export function Transitions({ initial, onClose, onDone }: { initial?: string; on
             <>
               <Row label="Sweep"><Seg value={spec.style} options={(Object.keys(STYLE_LABEL) as (keyof typeof STYLE_LABEL)[]).map(k => [k, STYLE_LABEL[k]])} onChange={v => patch({ style: v })} /></Row>
               <Row label="Glyphs"><Seg value={spec.ramp} options={(Object.keys(RAMP_LABEL) as (keyof typeof RAMP_LABEL)[]).map(k => [k, RAMP_LABEL[k]])} onChange={v => patch({ ramp: v })} /></Row>
+              <Row label="Colours">
+                <div style={{ display: 'flex', gap: 10 }}>
+                  {(spec.ramp === 'ascii' || spec.ramp === 'code' || spec.ramp === 'binary')
+                    ? <><ColorBox label="Glyph" value={spec.fg} onChange={v => patch({ fg: v })} /><ColorBox label="Fill" value={spec.bg} onChange={v => patch({ bg: v })} /></>
+                    : <ColorBox label="Colour" value={spec.bg} onChange={v => patch({ bg: v })} />}
+                </div>
+              </Row>
+              {(spec.ramp === 'ascii' || spec.ramp === 'code' || spec.ramp === 'binary') && (
+                <Row label="Font">
+                  <select className="field-input" value={spec.font ?? ''} onChange={e => patch({ font: e.target.value || undefined })} aria-label="Glyph font">
+                    <option value="">JetBrains Mono (default)</option>
+                    {FONTS.filter(f => f.id !== 'jetbrains').map(f => <option key={f.id} value={f.id} style={{ fontFamily: f.family }}>{f.name}</option>)}
+                  </select>
+                </Row>
+              )}
               <Slider label="Cell size" value={spec.cell} min={6} max={40} step={1} onChange={v => patch({ cell: v })} fmt={v => v + ' px'} />
               <Slider label="Soft edge" value={spec.band} min={0.1} max={1} step={0.05} onChange={v => patch({ band: v })} />
               <Slider label="Shimmer" value={spec.flicker} min={0} max={30} step={1} onChange={v => patch({ flicker: v })} fmt={v => v + '/s'} />
             </>
           )}
           <Slider label="Length" value={spec.dur} min={0.4} max={4} step={0.1} onChange={v => patch({ dur: v })} fmt={v => v.toFixed(1) + ' s'} />
+          {edited && <button className="btn-text" style={{ alignSelf: 'flex-start', padding: 0 }} onClick={reset}>Reset to preset</button>}
           {spec.mode === 'inout' && <Slider label="Hold covered" value={spec.hold} min={0} max={0.5} step={0.02} onChange={v => patch({ hold: v })} />}
 
           <div style={{ borderTop: '1px solid var(--line-soft)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>

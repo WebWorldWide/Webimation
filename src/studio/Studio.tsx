@@ -450,7 +450,7 @@ export class Studio extends Component<Props, State> {
     return (
       <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--app)', overflow: 'hidden' }}>
         <header data-tauri-drag-region className={'titlebar' + (isDesktop && isMac ? ' mac-inset' : '')} style={{ minHeight: 52, display: 'flex', alignItems: 'center', gap: 14, padding: '0 16px', background: 'var(--header)', borderBottom: HAIR }}>
-          <span style={{ width: 20, height: 20, background: 'var(--hi)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="9" height="9" viewBox="0 0 10 10"><path d="M2 1L9 5L2 9Z" fill="#FFFFFF" /></svg></span>
+          <img src="/favicon.svg" alt="Webimation" width={30} height={30} style={{ display: 'block', imageRendering: 'pixelated' }} />
           <div className="seg tight" role="group" aria-label="Workspace">
             {([['timeline', 'Timeline'], ['single', 'Single']] as const).map(([m, label]) => <button key={m} className={'ease' + (s.mode === m ? ' on' : '')} aria-pressed={s.mode === m} onClick={() => { this.lt = 0; this.setState({ mode: m }); }}>{label}</button>)}
           </div>
