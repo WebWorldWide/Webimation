@@ -231,6 +231,8 @@ Choose:
 
 Then click **Export** and choose where to save. **All** exports every graphic into a folder you choose, one file each.
 
+**Export timeline for editor** (desktop app) is the quickest route into an editor. It saves every graphic as a transparent movie, plus timeline files that put each one at its time. In Premiere Pro use **File → Import** on the `.xml`. In DaVinci Resolve use **File → Import → Timeline** on the `.fcpxml`. In Final Cut Pro use **File → Import → XML**. Keep the folder together, because the timeline files point at the movies next to them.
+
 The list under the buttons shows progress. You can keep working while it exports, and **Cancel** stops it.
 
 If the video formats are greyed out, ffmpeg isn't installed (see [section 1](#1-install-and-open-the-app)).
@@ -263,6 +265,10 @@ Use ProRes for Final Cut; it doesn't import PNG sequences directly.
 **CapCut and other apps**
 
 Import the file and add it as an overlay above your footage. Support for transparent video differs between apps and versions. If the background shows up black, try the other transparent formats (ProRes, WebM or PNG), or export with **Background** and use the app's blending or cropping instead.
+
+### Transitions
+
+Click **Transitions** at the top (or the **Fades** tab on the left, or press `T`) to browse dithered covers and reveals for hiding a cut. Click one to preview it, change its colours, font, size and length on the right, then **Export transition**. Drop the exported file on a track above the cut; the fully covered middle hides the edit.
 
 ## 14. Saving your work
 
