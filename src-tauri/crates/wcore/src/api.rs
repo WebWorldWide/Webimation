@@ -39,6 +39,16 @@ pub fn query(req: &str) -> String {
       Err(e) => json!({"error": e.to_string()}),
     },
     "fonts" => json!({"loaded": crate::fonts::loaded_fonts()}),
+    "bounds" => match serde_json::from_value::<Scene>(v["scene"].clone()) {
+      Ok(scene) => json!(crate::render::bounds(&scene).into_iter().map(|(id, b)| (id, b)).collect::<std::collections::BTreeMap<_, _>>()),
+      Err(e) => json!({"error": e.to_string()}),
+    },
+    "coverage" => match serde_json::from_value::<Scene>(v["scene"].clone()) {
+      Ok(scene) => json!(crate::render::coverage(&scene, v["t"].as_f64().unwrap_or(0.0) as f32).into_iter().collect::<std::collections::BTreeMap<_, _>>()),
+      Err(e) => json!({"error": e.to_string()}),
+    },
+    "inkOrder" => { let font = v["font"].as_str().unwrap_or("jetbrains-mono"); let chars: String = v["chars"].as_str().unwrap_or("").into(); let st = crate::glyph::GlyphStyle { font: font.into(), chars, sort_by_ink: true, ..Default::default() }; json!({"chars": st.ramp().into_iter().collect::<String>(), "ink": st.ramp().iter().map(|c| crate::glyph::ink_of(font, *c)).collect::<Vec<_>>()}) }
+    "grid" => match serde_json::from_value::<crate::glyph::GlyphStyle>(v["style"].clone()) { Ok(st) => { let (c, r, cw, ch) = st.grid(v["w"].as_u64().unwrap_or(1920) as usize, v["h"].as_u64().unwrap_or(1080) as usize); json!({"cols": c, "rows": r, "cw": cw, "ch": ch}) } Err(e) => json!({"error": e.to_string()}) },
     _ => json!({"error": format!("unknown op {op}")}),
   };
   out.to_string()

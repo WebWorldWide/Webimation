@@ -29,6 +29,7 @@ impl Screen {
     if let (Some(p), true) = (prev, self.phosphor > 0.0) { if p.w == f.w && p.h == f.h { phosphor(f, p, self.phosphor); } }
     if self.glow > 0.0 { glow(f, self.glow); }
     if self.rgb_split > 0.0 { rgb_split(f, (self.rgb_split * f.w as f32 / 1920.0).round().max(1.0) as i32); }
+    if self.scanlines <= 0.0 && self.grain <= 0.0 && self.vignette <= 0.0 { return; }
     let frame_no = (t * 60.0) as i32;
     let (w, h) = (f.w, f.h);
     let sp = self.scan_spacing.max(2) as usize;
@@ -64,44 +65,76 @@ fn phosphor(f: &mut Frame, prev: &Frame, amount: f32) {
   }
 }
 
-/// Separable box blur of the bright, opaque part, added back (screen) with `amount`.
+/// Bloom: blur the premultiplied frame at reduced resolution (glow is soft, so a quarter-size
+/// buffer looks identical), two box passes for a near-Gaussian falloff, then add it back with
+/// bilinear upsampling. Transparent areas pick up glow alpha, so it survives in alpha exports.
 pub fn glow(f: &mut Frame, amount: f32) {
   let (w, h) = (f.w, f.h);
-  let r = ((amount * 10.0 * w as f32 / 1920.0).round() as usize).clamp(2, 48);
-  let mut tmp = vec![0f32; w * h * 4];
-  let mut acc = vec![0f32; w * h * 4];
-  // Horizontal pass.
+  let d = (w / 480).max(1);
+  let (sw, sh) = ((w + d - 1) / d, (h + d - 1) / d);
+  let mut small = vec![0f32; sw * sh * 4];
+  for sy in 0..sh { for sx in 0..sw {
+    let mut acc = [0f32; 4]; let mut n = 0.0;
+    for y in sy * d..((sy + 1) * d).min(h) { for x in sx * d..((sx + 1) * d).min(w) {
+      let i = (y * w + x) * 4; let a = f.px[i + 3] as f32 / 255.0;
+      acc[0] += f.px[i] as f32 * a; acc[1] += f.px[i + 1] as f32 * a; acc[2] += f.px[i + 2] as f32 * a; acc[3] += f.px[i + 3] as f32; n += 1.0;
+    } }
+    let o = (sy * sw + sx) * 4; for c in 0..4 { small[o + c] = acc[c] / n; }
+  } }
+  let r = (((amount * 10.0) * w as f32 / 1920.0 / d as f32).round() as usize).clamp(1, 32);
+  let mut tmp = vec![0f32; small.len()];
+  for _ in 0..2 { box_h(&small, &mut tmp, sw, sh, r); box_v(&tmp, &mut small, sw, sh, r); }
+  let k = amount.min(1.5);
+  let inv = 1.0 / d as f32;
+  let cols: Vec<(usize, usize, f32)> = (0..w).map(|x| { let fx = ((x as f32 + 0.5) * inv - 0.5).max(0.0); let x0 = (fx as usize).min(sw - 1); (x0, (x0 + 1).min(sw - 1), fx - x0 as f32) }).collect();
+  let mut row = vec![0f32; sw * 4];
   for y in 0..h {
-    let mut s = [0f32; 4];
-    let row = |x: usize| { let i = (y * w + x) * 4; let a = f.px[i + 3] as f32 / 255.0; [f.px[i] as f32 * a, f.px[i + 1] as f32 * a, f.px[i + 2] as f32 * a, f.px[i + 3] as f32] };
-    for x in 0..r.min(w) { let p = row(x); for c in 0..4 { s[c] += p[c]; } }
-    for x in 0..w {
-      if x + r < w { let p = row(x + r); for c in 0..4 { s[c] += p[c]; } }
-      if x >= r + 1 { let p = row(x - r - 1); for c in 0..4 { s[c] -= p[c]; } }
-      let n = (x.min(r) + (w - 1 - x).min(r) + 1) as f32;
-      for c in 0..4 { tmp[(y * w + x) * 4 + c] = s[c] / n; }
+    let fy = ((y as f32 + 0.5) * inv - 0.5).max(0.0); let y0 = (fy as usize).min(sh - 1); let y1 = (y0 + 1).min(sh - 1); let ty = fy - y0 as f32;
+    let (ra, rb) = (&small[y0 * sw * 4..(y0 + 1) * sw * 4], &small[y1 * sw * 4..(y1 + 1) * sw * 4]);
+    for i in 0..sw * 4 { row[i] = ra[i] + (rb[i] - ra[i]) * ty; }
+    let line = &mut f.px[y * w * 4..(y + 1) * w * 4];
+    for (x, &(x0, x1, tx)) in cols.iter().enumerate() {
+      let (p0, p1) = (x0 * 4, x1 * 4);
+      let ga = (row[p0 + 3] + (row[p1 + 3] - row[p0 + 3]) * tx) * (k / 255.0);
+      if ga <= 0.002 { continue; }
+      let i = x * 4;
+      let a = line[i + 3] as f32 * (1.0 / 255.0);
+      let out_a = (a + ga * (1.0 - a)).min(1.0);
+      let gain = k * (1.0 - a * 0.5);
+      let inv_a = 1.0 / out_a.max(1e-4);
+      let lim = 255.0 * out_a;
+      for c in 0..3 {
+        let g = row[p0 + c] + (row[p1 + c] - row[p0 + c]) * tx;
+        line[i + c] = ((line[i + c] as f32 * a + g * gain).min(lim) * inv_a).min(255.0) as u8;
+      }
+      line[i + 3] = (out_a * 255.0) as u8;
     }
   }
-  // Vertical pass.
+}
+
+fn box_h(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: usize) {
+  for y in 0..h {
+    let row = y * w * 4;
+    let mut s = [0f32; 4];
+    for x in 0..=r.min(w - 1) { for c in 0..4 { s[c] += src[row + x * 4 + c]; } }
+    for x in 0..w {
+      let n = (x.min(r) + (w - 1 - x).min(r) + 1) as f32;
+      for c in 0..4 { dst[row + x * 4 + c] = s[c] / n; }
+      if x + r + 1 < w { for c in 0..4 { s[c] += src[row + (x + r + 1) * 4 + c]; } }
+      if x >= r { for c in 0..4 { s[c] -= src[row + (x - r) * 4 + c]; } }
+    }
+  }
+}
+fn box_v(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: usize) {
   for x in 0..w {
     let mut s = [0f32; 4];
-    for y in 0..r.min(h) { for c in 0..4 { s[c] += tmp[(y * w + x) * 4 + c]; } }
+    for y in 0..=r.min(h - 1) { for c in 0..4 { s[c] += src[(y * w + x) * 4 + c]; } }
     for y in 0..h {
-      if y + r < h { for c in 0..4 { s[c] += tmp[((y + r) * w + x) * 4 + c]; } }
-      if y >= r + 1 { for c in 0..4 { s[c] -= tmp[((y - r - 1) * w + x) * 4 + c]; } }
       let n = (y.min(r) + (h - 1 - y).min(r) + 1) as f32;
-      for c in 0..4 { acc[(y * w + x) * 4 + c] = s[c] / n; }
+      for c in 0..4 { dst[(y * w + x) * 4 + c] = s[c] / n; }
+      if y + r + 1 < h { for c in 0..4 { s[c] += src[((y + r + 1) * w + x) * 4 + c]; } }
+      if y >= r { for c in 0..4 { s[c] -= src[((y - r) * w + x) * 4 + c]; } }
     }
-  }
-  let k = amount.min(1.5);
-  for i in 0..w * h {
-    let ga = acc[i * 4 + 3] / 255.0 * k;
-    if ga <= 0.002 { continue; }
-    let cur = f.get(i % w, i / w);
-    let a = cur.3 as f32 / 255.0;
-    let out_a = (a + ga * (1.0 - a)).min(1.0);
-    let mix = |c: u8, g: f32| { let base = c as f32 * a; let add = g * k * (1.0 - a * 0.5); ((base + add).min(255.0 * out_a) / out_a.max(1e-4)).min(255.0) as u8 };
-    f.set(i % w, i / w, Rgba(mix(cur.0, acc[i * 4]), mix(cur.1, acc[i * 4 + 1]), mix(cur.2, acc[i * 4 + 2]), (out_a * 255.0) as u8));
   }
 }
 

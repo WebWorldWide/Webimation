@@ -84,10 +84,28 @@ pub struct Obj {
   pub as_ascii: bool,
   pub ascii_font: String,
   pub ascii_chars: String,
+  /// How the start is decided in the Lab's order panel: "start" (at the beginning), "with"
+  /// (with previous) or "after" (after previous). The UI resolves these into `start`.
+  pub cue: String,
+  /// Extra wait after the cue, seconds.
+  pub gap: f32,
+  /// Opacity automation: [scene time, value 0..1] pairs, linear between points. Empty = none.
+  pub opacity_keys: Vec<[f32; 2]>,
+  pub locked: bool,
+}
+impl Obj {
+  /// Automated opacity at scene time `t` (1 when there are no keys).
+  pub fn automation(&self, t: f32) -> f32 {
+    let k = &self.opacity_keys;
+    if k.is_empty() { return 1.0; }
+    if t <= k[0][0] { return k[0][1].clamp(0.0, 1.0); }
+    for w in k.windows(2) { if t <= w[1][0] { let span = (w[1][0] - w[0][0]).max(1e-6); return (w[0][1] + (w[1][1] - w[0][1]) * (t - w[0][0]) / span).clamp(0.0, 1.0); } }
+    k[k.len() - 1][1].clamp(0.0, 1.0)
+  }
 }
 impl Default for Obj {
   fn default() -> Self {
-    Obj { id: "o".into(), name: "Object".into(), kind: ObjKind::PixelText { text: "HELLO".into(), font: PixelFont::Five, px: 12.0, color: "#FFFFFF".into(), shadow: "#0E2960".into() }, x: 0.0, y: 0.0, scale: 1.0, rot: 0.0, opacity: 1.0, start: 0.0, dur: 0.0, order: 0, enter: FxIn::default(), on: FxOn::default(), exit: FxOut::default(), blend: Blend::Normal, hidden: false, as_ascii: false, ascii_font: "jetbrains-mono".into(), ascii_chars: " .:-=+*#%@".into() }
+    Obj { id: "o".into(), name: "Object".into(), kind: ObjKind::PixelText { text: "HELLO".into(), font: PixelFont::Five, px: 12.0, color: "#FFFFFF".into(), shadow: "#0E2960".into() }, x: 0.0, y: 0.0, scale: 1.0, rot: 0.0, opacity: 1.0, start: 0.0, dur: 0.0, order: 0, enter: FxIn::default(), on: FxOn::default(), exit: FxOut::default(), blend: Blend::Normal, hidden: false, as_ascii: false, ascii_font: "jetbrains-mono".into(), ascii_chars: " .:-=+*#%@".into(), cue: "manual".into(), gap: 0.0, opacity_keys: Vec::new(), locked: false }
   }
 }
 
@@ -116,9 +134,12 @@ pub struct Scene {
   pub bg: Background,
   pub objects: Vec<Obj>,
   pub screen: Screen,
+  /// Optional camera: the design-space rectangle [x, y, w, h] shown in the output (thumbnails
+  /// frame their content with it). None = the whole canvas.
+  pub view: Option<[f32; 4]>,
 }
 impl Default for Scene {
-  fn default() -> Self { Scene { name: "Untitled".into(), w: 1920, h: 1080, fps: 30, dur: 5.0, seed: 1, grid: 128, bg: Background::default(), objects: Vec::new(), screen: Screen::default() } }
+  fn default() -> Self { Scene { name: "Untitled".into(), w: 1920, h: 1080, fps: 30, dur: 5.0, seed: 1, grid: 128, bg: Background::default(), objects: Vec::new(), screen: Screen::default(), view: None } }
 }
 
 impl Scene {
@@ -138,6 +159,12 @@ impl Scene {
 #[cfg(test)]
 mod tests {
   use super::*;
+  #[test]
+  fn automation_interpolates() {
+    let o = Obj { opacity_keys: vec![[1.0, 0.0], [2.0, 1.0]], ..Default::default() };
+    assert_eq!(o.automation(0.0), 0.0); assert!((o.automation(1.5) - 0.5).abs() < 1e-6); assert_eq!(o.automation(9.0), 1.0);
+    assert_eq!(Obj::default().automation(3.0), 1.0);
+  }
   #[test]
   fn scene_round_trips_through_json() {
     let mut s = Scene::default();

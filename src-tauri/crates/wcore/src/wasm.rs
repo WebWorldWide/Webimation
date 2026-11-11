@@ -41,3 +41,13 @@ pub unsafe extern "C" fn query(json: *const u8, len: usize) -> *const u8 {
 }
 #[no_mangle]
 pub extern "C" fn out_len() -> usize { OUT.with(|o| o.borrow().len()) }
+
+/// Render and PNG-encode one frame. Returns a pointer to the PNG bytes; length via `out_len`.
+#[no_mangle]
+pub unsafe extern "C" fn render_png(json: *const u8, len: usize, t: f32, w: u32, h: u32) -> *const u8 {
+  let s = std::str::from_utf8_unchecked(std::slice::from_raw_parts(json, len));
+  let Ok(scene) = Scene::from_json(s) else { return std::ptr::null() };
+  let f = crate::render::render(&scene, t, w as usize, h as usize);
+  let bytes = crate::png::encode(&f);
+  OUT.with(|o| { let mut o = o.borrow_mut(); *o = bytes; o.as_ptr() })
+}

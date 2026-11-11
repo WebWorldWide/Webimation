@@ -47,13 +47,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.name == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.name == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin,wasm32-unknown-unknown' || 'wasm32-unknown-unknown' }}
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
 
       - run: npm ci
+      - run: npm run engine
       - run: npm test
 
       - uses: tauri-apps/tauri-action@v0

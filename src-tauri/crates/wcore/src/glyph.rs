@@ -88,7 +88,7 @@ impl GlyphStyle {
   }
   /// Measured advance/height ratio of the font so columns line up (fallback 0.6 like a typical mono).
   fn aspect(&self) -> f32 {
-    match fonts::glyph(&self.font, 'M', 40.0) { Some(g) if g.advance > 0.0 => { let (a, d) = fonts::line_metrics(&self.font, 40.0); ((a + d) / g.advance).clamp(1.0, 2.6) } _ => 1.7 }
+    match fonts::glyph(&self.font, 'M', 40.0) { Some(g) if g.advance > 0.0 => { let (a, d) = fonts::line_metrics(&self.font, 40.0); ((a + d) * 0.8 / g.advance).clamp(1.0, 2.2) } _ => 1.7 }
   }
   pub fn grid(&self, w: usize, h: usize) -> (usize, usize, f32, f32) {
     let (cw, ch) = self.cell_px(w);
@@ -185,6 +185,33 @@ pub fn frame_to_cells(src: &Frame, cols: usize, rows: usize) -> Vec<f32> {
   out
 }
 
+/// Redraw any raster as characters: each cell's coverage picks a character from `chars` (light →
+/// dark) and its average colour paints it. Used for "Show as characters" on text and shapes.
+pub fn to_glyphs(src: &Frame, cell: f32, font: &str, chars: &str) -> Frame {
+  let ch = cell.max(3.0);
+  let cw = (ch * 0.62).max(2.0);
+  let cols = (src.w as f32 / cw).ceil() as usize;
+  let rows = (src.h as f32 / ch).ceil() as usize;
+  let ramp: Vec<char> = if chars.trim().is_empty() { " .:-=+*#%@".chars().collect() } else { chars.chars().collect() };
+  let n = ramp.len().max(2);
+  let font_ok = fonts::has_font(font);
+  let mut out = Frame::new(src.w, src.h);
+  for y in 0..rows {
+    for x in 0..cols {
+      let (x0, y0) = ((x as f32 * cw) as usize, (y as f32 * ch) as usize);
+      let (x1, y1) = ((((x + 1) as f32 * cw) as usize).min(src.w), (((y + 1) as f32 * ch) as usize).min(src.h));
+      let (mut r, mut g, mut b, mut a, mut cnt) = (0f32, 0f32, 0f32, 0f32, 0f32);
+      for yy in y0..y1 { for xx in x0..x1 { let p = src.get(xx, yy); let pa = p.3 as f32 / 255.0; r += p.0 as f32 * pa; g += p.1 as f32 * pa; b += p.2 as f32 * pa; a += pa; cnt += 1.0; } }
+      if cnt == 0.0 || a / cnt < 0.06 { continue; }
+      let cov = a / cnt;
+      let idx = ((cov * (n - 1) as f32).round() as usize).clamp(1, n - 1).min(ramp.len() - 1);
+      let c = Rgba((r / a) as u8, (g / a) as u8, (b / a) as u8, 255);
+      draw_char(&mut out, ramp[idx], font, font_ok, x as f32 * cw, y as f32 * ch, cw, ch, ch * 0.95, c);
+    }
+  }
+  out
+}
+
 /// Hash-driven per-cell jitter, for effects that need "a different random number per cell per frame".
 #[inline]
 pub fn cell_rand(x: usize, y: usize, seed: u32) -> f32 { hash2(x as i32, y as i32, seed) }
@@ -212,6 +239,13 @@ mod tests {
     assert_eq!(f.get(2, 2).3, 0);
     let right = (0..108).flat_map(|y| (120..192).map(move |x| (x, y))).filter(|&(x, y)| f.get(x, y).3 > 0).count();
     assert!(right > 200, "{right}");
+  }
+  #[test]
+  fn any_raster_turns_into_characters() {
+    let mut src = Frame::new(120, 60); src.rect(0, 0, 120, 60, Rgba::BLUE);
+    let g = to_glyphs(&src, 12.0, "none", " .#");
+    assert!(g.coverage() > 0.05 && g.coverage() < 0.9, "{}", g.coverage());
+    assert!(to_glyphs(&Frame::new(40, 40), 10.0, "none", " #").is_clear());
   }
   #[test]
   fn builtin_fallback_draws_without_fonts() {

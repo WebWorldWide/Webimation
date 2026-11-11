@@ -21,12 +21,19 @@
         "resizable": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 20, "y": 24 },
-        "backgroundColor": "#E9ECF0"
+        "trafficLightPosition": {
+          "x": 20,
+          "y": 24
+        },
+        "backgroundColor": "#E9ECF0",
+        "dragDropEnabled": false
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost",
+      "capabilities": [
+        "main-window"
+      ]
     }
   },
   "bundle": {
@@ -48,6 +55,9 @@
       "files": {
         "Resources/Assets.car": "icons/Assets.car"
       }
+    },
+    "resources": {
+      "crates/wcore/fonts/": "fonts/"
     }
   }
 }

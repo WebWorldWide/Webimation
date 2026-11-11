@@ -23,7 +23,7 @@ fn header<'a>(req: &'a Request<'_>, key: &str) -> Result<&'a str, String> {
 }
 
 /// Locate an ffmpeg-suite binary. GUI apps on macOS don't inherit the shell PATH, so also check the usual installs.
-fn find_tool(name: &str) -> Option<PathBuf> {
+pub(crate) fn find_tool(name: &str) -> Option<PathBuf> {
   let exe = if cfg!(windows) { format!("{name}.exe") } else { name.to_string() };
   let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
   for d in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/snap/bin", "C:\\ffmpeg\\bin", "C:\\Program Files\\ffmpeg\\bin"] {
@@ -35,12 +35,12 @@ fn find_tool(name: &str) -> Option<PathBuf> {
   dirs.into_iter().map(|d| d.join(&exe)).find(|p| p.is_file())
 }
 
-fn ffmpeg() -> Option<PathBuf> {
+pub(crate) fn ffmpeg() -> Option<PathBuf> {
   find_tool("ffmpeg")
 }
 
 /// Keep Windows from flashing a console window for each ffmpeg/ffprobe call.
-fn quiet(cmd: &mut Command) -> &mut Command {
+pub(crate) fn quiet(cmd: &mut Command) -> &mut Command {
   #[cfg(windows)]
   {
     use std::os::windows::process::CommandExt;
@@ -177,7 +177,7 @@ fn check_contiguous(indices: &mut [u32]) -> Result<u32, String> {
 /// Post-encode gate for video output. Skipped silently when ffprobe isn't installed or can't run.
 /// Clearly broken output (empty, unreadable, no video stream) is removed; a frame-count mismatch is
 /// reported and the file is kept so it can be inspected.
-fn verify_video(out: &Path, expected: u32) -> Result<(), String> {
+pub(crate) fn verify_video(out: &Path, expected: u32) -> Result<(), String> {
   let Some(ffprobe) = find_tool("ffprobe") else { return Ok(()) };
   if fs::metadata(out).map(|m| m.len()).unwrap_or(0) == 0 {
     let _ = fs::remove_file(out);

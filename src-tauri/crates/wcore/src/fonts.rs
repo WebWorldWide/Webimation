@@ -102,6 +102,9 @@ pub fn glyph(font_id: &str, ch: char, px: f32) -> Option<Arc<Glyph>> {
   GLYPH_CACHE.with(|c| { let mut c = c.borrow_mut(); if c.len() > 20_000 { c.clear(); } c.insert(key, g.clone()); });
   Some(g)
 }
+/// Whether a font actually contains a character (not just its missing-glyph box).
+pub fn has_glyph(font_id: &str, ch: char) -> bool { font(font_id).map(|f| f.lookup_glyph_index(ch) != 0).unwrap_or(false) }
+
 /// Ascent and descent (positive numbers) in pixels at a size.
 pub fn line_metrics(font_id: &str, px: f32) -> (f32, f32) {
   font(font_id).and_then(|f| f.horizontal_line_metrics(px)).map(|m| (m.ascent, -m.descent)).unwrap_or((px * 0.8, px * 0.2))

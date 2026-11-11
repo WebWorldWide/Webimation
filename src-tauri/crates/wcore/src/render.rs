@@ -35,10 +35,11 @@ fn draw_background(scene: &Scene, f: &mut Frame) {
 }
 
 fn render_objects(scene: &Scene, t: f32, f: &mut Frame) {
-  let scale = f.w as f32 / scene.w.max(1) as f32;
+  let (vx, vy, vw) = match scene.view { Some([x, y, w, _]) if w > 1.0 => (x, y, w), _ => (0.0, 0.0, scene.w.max(1) as f32) };
+  let scale = f.w as f32 / vw;
   let mut objs: Vec<&Obj> = scene.objects.iter().filter(|o| !o.hidden).collect();
   objs.sort_by_key(|o| o.order);
-  for o in objs { render_object(scene, o, t, scale, 0.0, 0.0, f); }
+  for o in objs { render_object(scene, o, t, scale, -vx, -vy, f); }
 }
 
 /// Timing of an object at scene time `t`: (local time, enter k, exit x) or None when off screen.
@@ -47,7 +48,8 @@ pub fn timing(scene: &Scene, o: &Obj, t: f32, parent_start: f32) -> Option<(f32,
   let end = if o.dur <= 0.0 { scene.dur } else { (start + o.dur).min(scene.dur) };
   if t < start || t >= end { return None; }
   let local = t - start;
-  let k = progress(local, o.enter.delay, if o.enter.id == "none" { 0.0 } else { o.enter.dur });
+  // "Appear" cuts in on the cue frame itself.
+  let k = progress(local, o.enter.delay, if o.enter.id == "none" || o.enter.id == "appear" { 0.0 } else { o.enter.dur });
   let stays = matches!(o.exit.id.as_str(), "stay" | "none");
   let x = if stays { 0.0 } else { let xd = o.exit.dur.max(0.0); let xs = (end - start) - xd; if xd <= 0.0 { if local >= xs { 1.0 } else { 0.0 } } else { progress(local, xs, xd) } };
   if o.enter.id == "none" { return Some((local, 1.0, x)); }
@@ -86,7 +88,13 @@ fn render_part(scene: &Scene, o: &Obj, t: f32, parent_start: f32, scale: f32, ox
   let seed = scene.seed.wrapping_add(crate::math::hash_u32(o.id.bytes().fold(7u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32))));
   let s = scale * o.scale * pscale;
   // 1. Rasterise at output resolution.
-  let Some((mut raster, cell, unit)) = rasterise(scene, o, s, k, x, local, seed) else { return };
+  let Some((mut raster, cell, unit, origin)) = rasterise(scene, o, s, k, x, local, seed) else { return };
+  let (mut cell, mut origin) = (cell, origin);
+  if o.as_ascii && !matches!(o.kind, ObjKind::Sprite { .. } | ObjKind::PixelText { .. } | ObjKind::Field { .. } | ObjKind::Ascii { .. } | ObjKind::AsciiBanner { .. }) {
+    cell = (12.0 * s).max(3.0);
+    raster = glyph::to_glyphs(&raster, cell, &o.ascii_font, &o.ascii_chars);
+    origin = origin.max(0.0);
+  }
   // 2. Cell passes: entrance, while-on, exit.
   let amp = 240.0 * scale;
   // Pad once for whichever active cell effects move cells outside the box, then shift back on blit.
@@ -95,7 +103,7 @@ fn render_part(scene: &Scene, o: &Obj, t: f32, parent_start: f32, scale: f32, ox
   if o.on.id != "none" && anim::is_cell(Slot::On, &o.on.id) { padding = padding.max(anim::pad_for(&o.on.id, amp, raster.h, cell)); }
   if x > 0.0 && anim::is_cell(Slot::Out, &o.exit.id) { padding = padding.max(anim::pad_for(&o.exit.id, amp, raster.h, cell)); }
   if padding > 0 { raster = anim::pad(&raster, padding); }
-  let padf = padding as f32;
+  let padf = padding as f32 + origin;
   if k < 1.0 && anim::is_cell(Slot::In, &o.enter.id) && !text_handled(o, &o.enter.id) {
     raster = anim::cell_pass(&o.enter.id, &raster, &CellArgs { k, dir: o.enter.dir, seed, t: local, amp, exit: false, cell, unit });
   }
@@ -106,10 +114,10 @@ fn render_part(scene: &Scene, o: &Obj, t: f32, parent_start: f32, scale: f32, ox
     raster = anim::cell_pass(&o.exit.id, &raster, &CellArgs { k: 1.0 - o.exit.ease.apply(x), dir: o.exit.dir, seed, t: local, amp, exit: true, cell, unit });
   }
   // 3. Transforms.
-  let span = f.w as f32 + raster.w as f32 - 2.0 * padf;
-  let xf = anim::enter_xf(&o.enter, k, amp, seed).then(anim::on_xf(&o.on, local, scale, span, raster.w as f32 - 2.0 * padf, seed)).then(anim::exit_xf(&o.exit, x, amp, seed));
+  let span = f.w as f32 + raster.w as f32 - 2.0 * padding as f32;
+  let xf = anim::enter_xf(&o.enter, k, amp, seed).then(anim::on_xf(&o.on, local, scale, span, raster.w as f32 - 2.0 * padding as f32, seed)).then(anim::exit_xf(&o.exit, x, amp, seed));
   if !xf.visible || xf.opacity <= 0.0 { return; }
-  let opacity = xf.opacity * o.opacity * popacity;
+  let opacity = xf.opacity * o.opacity * popacity * o.automation(t);
   let px = (ox + o.x) * scale + xf.dx - padf; let py = (oy + o.y) * scale + xf.dy - padf;
   let rot = o.rot + xf.rot;
   if rot.abs() < 1e-3 && (xf.sx - 1.0).abs() < 1e-4 && (xf.sy - 1.0).abs() < 1e-4 {
@@ -129,7 +137,13 @@ fn text_handled(o: &Obj, fx: &str) -> bool { matches!(o.kind, ObjKind::Text { ..
 
 /// Rasterise an object at scale `s`. Returns the frame, the cell size (output px) for cell effects,
 /// and the "unit" (one letter's width) for typewriter-style effects.
-fn rasterise(scene: &Scene, o: &Obj, s: f32, k: f32, x: f32, local: f32, seed: u32) -> Option<(Frame, f32, f32)> {
+fn rasterise(scene: &Scene, o: &Obj, s: f32, k: f32, x: f32, local: f32, seed: u32) -> Option<(Frame, f32, f32, f32)> {
+  let r = rasterise_inner(scene, o, s, k, x, local, seed)?;
+  let off = if let ObjKind::Shape { style, .. } = &o.kind { let mut st = style.clone(); st.stroke_w *= s; crate::shapes::shape_margin(&st) } else { 0.0 };
+  Some((r.0, r.1, r.2, off))
+}
+
+fn rasterise_inner(scene: &Scene, o: &Obj, s: f32, k: f32, x: f32, local: f32, seed: u32) -> Option<(Frame, f32, f32)> {
   match &o.kind {
     ObjKind::PixelText { text, font, px, color, shadow } => {
       let cellpx = (px * s).max(1.0);
@@ -258,10 +272,61 @@ fn ascii_of(small: &Frame, cellpx: f32, o: &Obj, _scene: &Scene, t: f32, seed: u
   (fr, cw, cw * 6.0)
 }
 
+/// The moment an object is fully in and not yet leaving: after its entrance, before its exit.
+pub fn rest_time(scene: &Scene, o: &Obj) -> f32 {
+  let end = scene.end_of(o);
+  // Cards stagger their parts internally: wait for the last part to land.
+  let card_extra = if let ObjKind::Card { template, fields, look, colors } = &o.kind {
+    cards::expand(template, fields, look, colors, o).iter().map(|p| p.start + p.enter.dur).fold(0.0, f32::max)
+  } else { 0.0 };
+  let settled = o.start + o.enter.delay + if o.enter.id == "none" { 0.0 } else { o.enter.dur }.max(card_extra) + 0.02;
+  let leaving = if matches!(o.exit.id.as_str(), "stay" | "none") { end } else { end - o.exit.dur.max(0.0) } - 0.02;
+  settled.min(leaving).max(o.start)
+}
+
+/// Bounding box [x0, y0, x1, y1] in design pixels of each object at rest (motion off), measured
+/// from its rendered alpha. Objects that draw nothing get an empty box at their position.
+pub fn bounds(scene: &Scene) -> Vec<(String, [f32; 4])> {
+  let k = 0.25f32;
+  let (w, h) = (((scene.w as f32 * k) as usize).max(8), ((scene.h as f32 * k) as usize).max(8));
+  scene.objects.iter().map(|o| {
+    let mut solo = scene.clone_shallow();
+    solo.bg.kind = "clear".into(); solo.screen = Default::default(); solo.view = None;
+    let mut oo = o.clone(); oo.on = Default::default(); oo.hidden = false; oo.opacity_keys.clear(); oo.opacity = 1.0;
+    let t = rest_time(scene, o);
+    solo.objects.push(oo);
+    let f = render(&solo, t, w, h);
+    let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0usize, 0usize);
+    for y in 0..f.h { for x in 0..f.w { if f.px[(y * f.w + x) * 4 + 3] > 8 { x0 = x0.min(x); y0 = y0.min(y); x1 = x1.max(x + 1); y1 = y1.max(y + 1); } } }
+    let s = scene.w as f32 / w as f32;
+    let b = if x0 == usize::MAX { [o.x, o.y, o.x, o.y] } else { [x0 as f32 * s, y0 as f32 * s, x1 as f32 * s, y1 as f32 * s] };
+    (o.id.clone(), b)
+  }).collect()
+}
+
+/// Share of the frame each object covers at time `t` (for the Mix meters).
+pub fn coverage(scene: &Scene, t: f32) -> Vec<(String, f32)> {
+  scene.objects.iter().map(|o| {
+    let mut solo = scene.clone_shallow(); solo.bg.kind = "clear".into(); solo.screen = Default::default(); solo.view = None;
+    solo.objects.push(o.clone());
+    (o.id.clone(), render(&solo, t, 96, ((96.0 / scene.aspect()) as usize).max(8)).coverage())
+  }).collect()
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
   use crate::scene::{FxIn, FxOn, FxOut};
+  #[test]
+  fn bounds_find_objects_and_automation_fades() {
+    let mut s = Scene { w: 640, h: 360, dur: 4.0, ..Default::default() };
+    s.objects.push(Obj { id: "r".into(), x: 100.0, y: 80.0, kind: ObjKind::Shape { style: crate::shapes::ShapeStyle::default(), w: 200.0, h: 100.0 }, enter: FxIn { id: "pop".into(), ..Default::default() }, ..Default::default() });
+    let b = bounds(&s)[0].1;
+    assert!((b[0] - 100.0).abs() < 8.0 && (b[1] - 80.0).abs() < 8.0 && (b[2] - 300.0).abs() < 12.0 && (b[3] - 180.0).abs() < 12.0, "{b:?}");
+    let mut faded = s.clone(); faded.objects[0].opacity_keys = vec![[0.0, 0.0], [4.0, 0.0]];
+    assert!(render(&faded, 2.0, 160, 90).is_clear());
+    assert!(coverage(&s, 2.0)[0].1 > 0.05);
+  }
   fn demo() -> Scene {
     let mut s = Scene { w: 640, h: 360, dur: 4.0, ..Default::default() };
     s.objects.push(Obj { id: "t".into(), x: 40.0, y: 40.0, kind: ObjKind::PixelText { text: "WEB".into(), font: PixelFont::Five, px: 10.0, color: "#FFFFFF".into(), shadow: "#0E2960".into() }, enter: FxIn { id: "blocky-wipe".into(), dur: 0.6, ..Default::default() }, on: FxOn { id: "bob".into(), amp: 1.0, speed: 1.0 }, exit: FxOut { id: "dither-out".into(), dur: 0.5, ..Default::default() }, ..Default::default() });
@@ -296,6 +361,21 @@ mod tests {
     s.objects.push(Obj { id: "f".into(), kind: ObjKind::Field { w: 1920.0, h: 1080.0, style: GlyphStyle::default(), field: Default::default(), source: String::new() }, order: 0, ..Default::default() });
     let f = render(&s, 2.0, 480, 270);
     assert!(f.coverage() > 0.2);
+  }
+  #[test]
+  fn appear_is_there_on_its_first_frame() {
+    let mut s = Scene { w: 320, h: 180, dur: 2.0, ..Default::default() };
+    s.objects.push(Obj { id: "a".into(), kind: ObjKind::Shape { style: crate::shapes::ShapeStyle::default(), w: 40.0, h: 40.0 }, enter: FxIn { id: "appear".into(), ..Default::default() }, ..Default::default() });
+    assert!(!render(&s, 0.0, 160, 90).is_clear());
+  }
+  #[test]
+  fn camera_frames_a_region() {
+    let mut s = Scene { w: 640, h: 360, dur: 2.0, ..Default::default() };
+    s.objects.push(Obj { id: "r".into(), x: 300.0, y: 160.0, kind: ObjKind::Shape { style: crate::shapes::ShapeStyle::default(), w: 40.0, h: 40.0 }, enter: FxIn { id: "none".into(), ..Default::default() }, ..Default::default() });
+    let wide = render(&s, 1.0, 160, 90).coverage();
+    s.view = Some([280.0, 140.0, 80.0, 45.0]);
+    let tight = render(&s, 1.0, 160, 90).coverage();
+    assert!(tight > wide * 10.0, "{wide} {tight}");
   }
   #[test]
   fn motion_feel_holds_frames() {

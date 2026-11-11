@@ -56,13 +56,13 @@ fn vtext(id: &str, text: &str, font: &str, size: f32, color: &str, x: f32, y: f3
 }
 
 pub fn scene(id: &str) -> Option<Scene> {
-  let mut s = Scene { name: id.into(), w: 1920, h: 1080, fps: 12, dur: 8.0, grid: 128, bg: Background { kind: "sky".into(), ..Default::default() }, ..Default::default() };
+  let mut s = Scene { name: SCENES.iter().find(|x| x.0 == id).map(|x| x.1).unwrap_or(id).into(), w: 1920, h: 1080, fps: 12, dur: 8.0, grid: 128, bg: Background { kind: "sky".into(), ..Default::default() }, ..Default::default() };
   match id {
     "channel-intro" => {
       s.dur = 8.2;
       let mut c1 = sprite("far", "Far cloud", pixel::cloud(0), 10.0, 120.0, 90.0, 0.0, "appear", "drift-across", "stay"); c1.on.speed = 0.5; c1.opacity = 0.8;
       let mut c2 = sprite("near", "Near cloud", pixel::cloud(2), 14.0, 1100.0, 720.0, 0.0, "appear", "drift-across", "stay"); c2.on.speed = 0.8;
-      let mut t = ptext("title", "WEB WORLD WIDE", 22.0, "#FFFFFF", 180.0, 330.0, 0.3, "rain-in", "sway", "dither-out"); t.enter.dur = 0.9;
+      let mut t = ptext("title", "WEB WORLD WIDE", 18.0, "#FFFFFF", 212.0, 340.0, 0.3, "rain-in", "sway", "dither-out"); t.enter.dur = 0.9;
       let mut btn = Obj { id: "sub".into(), name: "Subscribe button".into(), kind: ObjKind::Text { text: "▶  Subscribe".into(), style: TextStyle { font: "archivo-black".into(), size: 44.0, color: "#FFFFFF".into(), plate: pixel::WWW_CHERRY.into(), pad_x: 30.0, pad_y: 16.0, shadow: pixel::WWW_INK.into(), shadow_dx: 6.0, shadow_dy: 6.0, ..Default::default() } }, x: 760.0, y: 600.0, start: 1.6, enter: FxIn { id: "drop-bounce".into(), dur: 0.7, ..Default::default() }, on: FxOn { id: "shadow-lift".into(), amp: 1.0, speed: 1.0 }, exit: FxOut { id: "shrink".into(), dur: 0.35, ..Default::default() }, ..Default::default() };
       btn.order = 4;
       let sp = sprite("spark", "Sparkle", pixel::sparkle(), 10.0, 1360.0, 300.0, 1.9, "pop", "pulse", "shrink");
@@ -92,7 +92,7 @@ pub fn scene(id: &str) -> Option<Scene> {
     }
     "end-screen" => {
       s.dur = 10.0;
-      let thanks = ptext("thanks", "THANKS FOR WATCHING", 10.0, "#FFFFFF", 420.0, 110.0, 0.0, "blocky-wipe", "sway", "stay");
+      let thanks = ptext("thanks", "THANKS FOR WATCHING", 12.0, "#FFFFFF", 276.0, 110.0, 0.0, "blocky-wipe", "sway", "stay");
       let mut a = Obj { id: "boxa".into(), name: "Video box".into(), kind: ObjKind::Shape { style: ShapeStyle { kind: ShapeKind::Rect, fill: "#0E2960".into(), stroke: "#FFFFFF".into(), stroke_w: 6.0, pixel: 8.0, ..Default::default() }, w: 640.0, h: 360.0 }, x: 240.0, y: 330.0, start: 0.6, enter: FxIn { id: "pop".into(), dur: 0.5, ..Default::default() }, exit: FxOut { id: "stay".into(), ..Default::default() }, ..Default::default() };
       a.on = FxOn { id: "hover".into(), amp: 1.0, speed: 0.7 };
       let mut b = a.clone(); b.id = "boxb".into(); b.x = 1040.0; b.start = 0.9; b.on.speed = 0.9;
@@ -112,9 +112,9 @@ pub fn scene(id: &str) -> Option<Scene> {
     }
     "shorts-hook" => {
       s.w = 1080; s.h = 1920; s.dur = 4.0; s.fps = 30;
-      let a = ptext("l1", "STOP", 30.0, "#FFFFFF", 160.0, 560.0, 0.0, "stamp", "wiggle", "blocky-wipe");
-      let b = ptext("l2", "SCROLLING", 20.0, "#F5C542", 110.0, 800.0, 0.4, "slide", "none", "blocky-wipe");
-      let mut c = ptext("l3", "WATCH THIS", 14.0, "#FFFFFF", 240.0, 1000.0, 0.9, "typewriter", "blink", "blocky-wipe"); c.enter.dur = 0.8;
+      let a = ptext("l1", "STOP", 30.0, "#FFFFFF", 195.0, 560.0, 0.0, "stamp", "wiggle", "blocky-wipe");
+      let b = ptext("l2", "SCROLLING", 16.0, "#F5C542", 112.0, 800.0, 0.4, "slide", "none", "blocky-wipe");
+      let mut c = ptext("l3", "WATCH THIS", 14.0, "#FFFFFF", 128.0, 1000.0, 0.9, "typewriter", "blink", "blocky-wipe"); c.enter.dur = 0.8;
       let arrow = sprite("arrow", "Arrow", pixel::arrow_right(), 12.0, 480.0, 1200.0, 1.4, "pop", "bob", "shrink");
       for (i, mut o) in [a, b, c, arrow].into_iter().enumerate() { o.order = i as u32; o.enter.dir = Dir::Right; s.objects.push(o); }
     }
@@ -126,6 +126,17 @@ pub fn scene(id: &str) -> Option<Scene> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  #[test]
+  fn starter_scenes_stay_inside_the_frame() {
+    for (id, _, _) in SCENES {
+      let sc = scene(id).unwrap();
+      for (oid, b) in crate::render::bounds(&sc) {
+        let o = sc.find(&oid).unwrap();
+        if o.on.id == "drift-across" { continue; }
+        assert!(b[0] >= -1.0 && b[2] <= sc.w as f32 + 1.0 && b[3] <= sc.h as f32 + 1.0, "{id}/{oid} out of frame: {b:?}");
+      }
+    }
+  }
   #[test]
   fn looks_and_scenes_exist_and_render() {
     assert!(LOOKS.len() >= 10);

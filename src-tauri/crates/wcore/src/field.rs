@@ -84,16 +84,21 @@ impl FieldParams {
     let oct = self.detail.clamp(1, 6);
     match self.channel {
       Channel::Horizon => {
-        // A planet's limb: bright rim at a large circle below the frame, glow fading up, sparks along the edge.
-        let cx = 0.0; let cy = 0.95;
-        let d = ((u - cx).powi(2) + (v - cy).powi(2)).sqrt() - 0.78;
-        let rim = (1.0 - (d.abs() * 14.0)).max(0.0).powf(1.3);
-        let glow = (-d.max(0.0) * 4.5).exp() * 0.9;
-        let inside = if d < 0.0 { 0.06 + 0.3 * fbm(u * 6.0 + a.cos() * 0.3, v * 6.0 + a.sin() * 0.3, 0.0, oct, s) } else { 0.0 };
+        // A planet's limb: a huge dark disc rising from below, a hot rim, glow fading into space,
+        // sparks riding the edge and a faint atmosphere band. The planet's face stays dark.
+        let (cx, cy, r) = (0.0, 1.55, 1.42);
+        let d = ((u - cx).powi(2) + (v - cy).powi(2)).sqrt() - r;
+        let rim = (1.0 - (d.abs() * 22.0)).max(0.0).powf(1.3);
+        let glow = if d > 0.0 { (-d * 6.0).exp() * 0.8 } else { (d * 30.0).exp() * 0.55 };
+        let surface = if d < 0.0 { (0.03 + 0.16 * fbm(u * 5.0 + a.cos() * 0.25, v * 5.0 + a.sin() * 0.25, 0.0, oct, s)) * (1.0 + d * 3.0).max(0.0) } else { 0.0 };
         let ang = (v - cy).atan2(u - cx);
-        let sparks = (hash2((ang * 90.0) as i32, 0, s) * 1.2 - 0.2).max(0.0) * (1.0 - (d * 10.0 - 0.4).abs().min(1.0)) * (0.5 + 0.5 * (ang * 11.0 + a * 3.0).sin());
-        let twinkle = 0.4 + 0.6 * (0.5 + 0.5 * (a * 2.0 + ang * 7.0).sin());
-        clamp01(inside + glow * 0.55 + rim + sparks * twinkle)
+        let lane = (1.0 - ((d - 0.03) * 60.0).abs()).max(0.0);
+        // Sparks: sparse points orbiting just above the rim, each twinkling on its own phase.
+        let k = (ang * 340.0 + a * 4.0).floor() as i32;
+        let spark = if hash2(k, 0, s) > 0.955 { lane * (0.6 + 0.4 * (a * 3.0 + hash2(k, 1, s) * 6.28).sin()) } else { 0.0 };
+        let stars = if d > 0.08 && hash2(((u + 9.0) * 90.0) as i32, ((v + 9.0) * 90.0) as i32, s + 3) > 0.993 { 0.35 + 0.35 * (a * 3.0 + u * 40.0).sin().abs() } else { 0.0 };
+        let shimmer = 0.85 + 0.15 * (ang * 24.0 - a * 2.0).sin();
+        clamp01(surface + glow * shimmer + rim + spark + stars)
       }
       Channel::Tide => {
         let crest = 0.5 + 0.35 * (a).sin();

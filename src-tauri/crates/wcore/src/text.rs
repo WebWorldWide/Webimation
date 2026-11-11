@@ -60,7 +60,7 @@ pub fn layout(text: &str, st: &TextStyle) -> Layout {
       if ch == ' ' { word += 1; }
       if let Some(p) = prev { x += fonts::kern(&st.font, p, ch, px); }
       row.push((ch, x, word));
-      let adv = if has_font { fonts::glyph(&st.font, ch, px).map(|g| g.advance).unwrap_or(px * 0.5) } else { px * 0.6 };
+      let adv = if has_font && (ch == ' ' || fonts::has_glyph(&st.font, ch)) { fonts::glyph(&st.font, ch, px).map(|g| g.advance).unwrap_or(px * 0.5) } else { px * 0.75 };
       x += adv + st.tracking * px;
       prev = Some(ch);
     }
@@ -102,13 +102,14 @@ pub fn render_text(text: &str, st: &TextStyle, visible: &dyn Fn(usize, &Placed) 
       if a <= 0.0 || g.ch == ' ' { continue; }
       let c = if a < 1.0 { c.with_alpha(a) } else { c };
       let (x, y) = (g.x + padx + dx + ox, g.baseline + pady + dy + oy);
-      if has_font {
+      if has_font && fonts::has_glyph(&st.font, g.ch) {
         if let Some(gl) = fonts::glyph(&st.font, g.ch, lay.px) {
           blit_cov(f, &gl.cov, gl.w, gl.h, (x + gl.xmin as f32).round() as i32, (y - gl.ymin as f32 - gl.h as f32).round() as i32, c);
         }
       } else if let Some(rows) = PixelFont::Five.glyph(g.ch) {
-        let s = (lay.px / 8.0).max(1.0);
-        for (r, bits) in rows.iter().enumerate() { for col in 0..5 { if bits & (1 << (4 - col)) != 0 { f.rect((x + col as f32 * s) as i32, (y - 7.0 * s + r as f32 * s) as i32, s.ceil() as i32, s.ceil() as i32, c); } } }
+        // Symbols the font lacks (▶ ♥ ★ …) come from the built-in pixel font at cap height.
+        let s = (lay.px * 0.7 / 7.0).max(1.0);
+        for (r, bits) in rows.iter().enumerate() { for col in 0..5 { if bits & (1 << (4 - col)) != 0 { f.rect((x + col as f32 * s).round() as i32, (y - 7.0 * s + r as f32 * s).round() as i32, s.ceil() as i32, s.ceil() as i32, c); } } }
       }
     }
   };
@@ -130,6 +131,14 @@ mod tests {
     assert_eq!(l.lines, 2); assert!(l.w > 60.0 && l.h > 70.0);
     let hi = l.glyphs.iter().find(|g| g.line == 1).unwrap();
     assert!(hi.x > 10.0, "second line should be centred, x = {}", hi.x);
+  }
+  #[test]
+  fn missing_symbols_fall_back_to_pixels() {
+    fonts::load_test_fonts();
+    assert!(!fonts::has_glyph("archivo-black", '▶') && fonts::has_glyph("archivo-black", 'A'));
+    let st = TextStyle { font: "archivo-black".into(), size: 40.0, ..Default::default() };
+    let (f, _) = render_text("▶", &st, &all_visible);
+    assert!(f.coverage() > 0.1, "{}", f.coverage());
   }
   #[test]
   fn text_renders_with_plate_and_shadow() {

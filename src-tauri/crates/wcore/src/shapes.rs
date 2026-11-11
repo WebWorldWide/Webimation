@@ -113,11 +113,14 @@ pub fn stroke_poly(f: &mut Frame, pts: &[(f32, f32)], ox: f32, oy: f32, width: f
   }
 }
 
+/// Transparent border `render_shape` leaves around the shape box (room for strokes and shadow).
+pub fn shape_margin(st: &ShapeStyle) -> f32 { (st.stroke_w.max(2.0) + if st.shadow.is_empty() { 0.0 } else { 6.0 }).ceil() }
+
 /// Draw a shape into a `w × h` frame. `k` is draw-on progress (1 = complete).
 pub fn render_shape(st: &ShapeStyle, w: f32, h: f32, k: f32) -> Frame {
   let (pts, closed) = path(st.kind, w, h, st.param);
   let sh = !st.shadow.is_empty();
-  let margin = st.stroke_w.max(2.0) + if sh { 6.0 } else { 0.0 };
+  let margin = shape_margin(st);
   let mut f = Frame::new((w + margin * 2.0).ceil() as usize, (h + margin * 2.0).ceil() as usize);
   let fill = Rgba::hex(&st.fill); let stroke = Rgba::hex(&st.stroke);
   let (ox, oy) = (margin, margin);

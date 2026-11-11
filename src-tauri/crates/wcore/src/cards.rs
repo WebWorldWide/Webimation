@@ -75,8 +75,8 @@ pub fn expand(template: &str, fields: &BTreeMap<String, String>, look: &str, col
     }
     "lowerthird" => {
       out.push(obj("bar", "Bar", ObjKind::Shape { style: ShapeStyle { kind: ShapeKind::Rect, fill: cs.plate.into(), ..Default::default() }, w: 14.0, h: 118.0 }, 0.0, 0.0, 0.0, "wipe", ex));
-      out.push(obj("name", "Name", ObjKind::Text { text: g("name"), style: text(font, 60.0, cs.paper) }, 36.0, 0.0, 0.12, en, ex));
-      out.push(obj("under", "Role", ObjKind::Text { text: g("under"), style: TextStyle { uppercase: true, tracking: 0.12, ..text(font, 24.0, cs.paper) } }, 36.0, 80.0, 0.3, en, ex));
+      out.push(obj("name", "Name", ObjKind::Text { text: g("name"), style: plate(text(font, 56.0, "#FFFFFF"), "#0B0B0C", 22.0, 10.0) }, 14.0, 0.0, 0.12, en, ex));
+      out.push(obj("under", "Role", ObjKind::Text { text: g("under"), style: plate(TextStyle { uppercase: true, tracking: 0.12, ..text(font, 22.0, cs.ink) }, "#FFFFFF", 22.0, 9.0) }, 14.0, 82.0, 0.3, en, ex));
     }
     "arrow" => {
       out.push(obj("arrow", "Arrow", ObjKind::Shape { style: ShapeStyle { kind: ShapeKind::Arrow, fill: "#FF8A1F".into(), ..Default::default() }, w: 320.0, h: 90.0 }, 0.0, 0.0, 0.0, "draw-on", ex));
